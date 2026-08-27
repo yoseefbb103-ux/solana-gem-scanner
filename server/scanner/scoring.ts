@@ -13,7 +13,7 @@ const round = (value: number) => Math.round(value * 10) / 10;
 const median = (values: number[]) => { const sorted = [...values].sort((left, right) => left - right); const middle = Math.floor(sorted.length / 2); return sorted.length ? sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2 : 0; };
 
 export function unavailableSecurity(candidate: TokenCandidate): SecurityReport {
-  return { baseAddress: candidate.baseAddress, pairAddress: candidate.pairAddress, symbol: candidate.symbol, source: "RugCheck", status: "unavailable", mintAuthorityOpen: false, freezeAuthorityOpen: false, lpLockStatus: "unknown", holderTopPct: null, holderTop10Pct: null, creatorAddress: null, ruggedCreator: false, knownRuggedDeployer: false, sprayCount24h: 0, rugcheckScore: null, symbolConflict: false, deepScanApplied: false, holderClusterScore: null, bundleDetected: null, washTradingScore: null, fundingSourceOverlap: null, token2022Flags: [], lpBurnVerified: null, flags: ["بيانات أمان غير متاحة"], checkedAt: Date.now() };
+  return { baseAddress: candidate.baseAddress, pairAddress: candidate.pairAddress, symbol: candidate.symbol, source: "RugCheck", status: "unavailable", mintAuthorityOpen: false, freezeAuthorityOpen: false, lpLockStatus: "unknown", holderTopPct: null, holderTop10Pct: null, creatorAddress: null, ruggedCreator: false, knownRuggedDeployer: false, sprayCount24h: 0, rugcheckScore: null, symbolConflict: false, deepScanApplied: false, holderClusterScore: null, bundleDetected: null, washTradingScore: null, fundingSourceOverlap: null, fundingEvidenceStatus: "unavailable", token2022Flags: [], lpBurnVerified: null, lpMintAddresses: [], flags: ["بيانات أمان غير متاحة"], checkedAt: Date.now() };
 }
 
 function estimateSlippage(tradeUsd: number, liquidityUsd: number) { if (liquidityUsd <= 0) return null; return round((tradeUsd / (liquidityUsd / 2 + tradeUsd)) * 100); }
@@ -60,12 +60,20 @@ export function scoreCandidate(candidate: TokenCandidate, previousScore?: number
   if (signals.liquidityGrowthStable) factors.push("نمو سيولة متسق عبر عدة فحصات");
   if (signals.liquidityPullDetected) warnings.unshift("احتمال سحب سيولة نشط الآن؛ استبعد من أفضل الآن");
   if (security.sprayCount24h >= 3) warnings.push("نمط رش: نفس الناشر أطلق عدة توكنات خلال 24 ساعة");
+  if (security.holderClusterScore !== null && security.holderClusterScore >= 40) warnings.push("تمركز حسابات مرتفع ضمن أكبر الحائزين المرصودين on-chain");
+  if (security.bundleDetected) warnings.push("نمط معاملات مجمعة محتمل؛ يحتاج مراجعة يدوية");
+  if (security.fundingSourceOverlap) warnings.push("تمويل مشترك مرصود بين حائزين كبار ضمن السجل العام المتاح");
+  if (security.token2022Flags.length) warnings.push("امتدادات Token-2022 مرصودة؛ تحقق من القيود أو الرسوم قبل أي قرار");
   let risk = 0;
   risk += clamp((25_000 - candidate.liquidityUsd) / 25_000 * 24, 0, 24) + (ageHours !== null && ageHours < 1 ? 12 : ageHours !== null && ageHours < 6 ? 6 : 0) + (absH1 > 35 ? 15 : absH1 > 20 ? 8 : 0) + (Math.abs(candidate.priceChangeM5) > 12 ? 8 : 0) + (totalTransactions >= 12 && balance < 0.25 ? 9 : 0) + (volumeRatio > 5 ? 9 : 0) + (candidate.volumeH1 < 500 ? 9 : 0) + ((slippage500 ?? 12) > 8 ? 8 : 0) + (consistency === "negative" ? 7 : 0);
   risk += (priceDivergencePct ?? 0) > 12 ? 7 : 0;
   risk += security.mintAuthorityOpen ? 28 : 0; risk += security.freezeAuthorityOpen ? 20 : 0; risk += security.lpLockStatus === "unlocked" ? 24 : 0;
   risk += security.holderTopPct !== null && security.holderTopPct >= 25 ? 12 : 0; risk += security.holderTop10Pct !== null && security.holderTop10Pct >= 65 ? 10 : 0;
   risk += security.ruggedCreator ? 22 : 0; risk += security.knownRuggedDeployer ? 35 : 0; risk += security.sprayCount24h >= 3 ? 18 : 0; risk += security.symbolConflict ? 14 : 0; risk += security.status === "unavailable" ? 4 : 0; risk += signals.liquidityPullDetected ? 65 : 0;
+  risk += security.holderClusterScore !== null && security.holderClusterScore >= 40 ? 14 : 0;
+  risk += security.bundleDetected ? 18 : 0;
+  risk += security.fundingSourceOverlap ? 22 : 0;
+  risk += security.token2022Flags.some((flag) => /Transfer Hook|رسوم تحويل|إيقاف|مندوب دائم/.test(flag)) ? 12 : 0;
   const opportunityScore = round(clamp(liquidityScore + volumeScore + ageScore + activityScore + momentumScore + consistencyScore + (candidate.liquidDexCount >= 2 ? 2 : 0) + (candidate.metadataCompleteness >= 2 ? 1 : 0) + (signals.liquidityGrowthStable ? 3 : 0)));
   const riskScore = round(clamp(risk));
   const decision: ScoredCandidate["decision"] = signals.liquidityPullDetected || security.mintAuthorityOpen || security.freezeAuthorityOpen || security.lpLockStatus === "unlocked" || security.knownRuggedDeployer || riskScore >= 65 ? "avoid" : security.status === "passed" && riskScore <= 28 && opportunityScore >= 55 ? "monitor" : "caution";

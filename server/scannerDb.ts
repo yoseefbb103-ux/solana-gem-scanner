@@ -1,7 +1,7 @@
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { alertEvents, filterSettings, knownRuggedDeployers, performanceCheckpoints, scannerRunLocks, scannerSettings, scannerSnapshots, scanRuns, securityReports, sourceHealthEvents, watchlist } from "../drizzle/schema";
 import { getDb } from "./db";
-import { DEFAULT_FILTERS, DEFAULT_SCANNER_SETTINGS, type ScanFilters, type ScannerSettings, type ScoredCandidate, type SecurityReport, type SourceTelemetry } from "./scanner/types";
+import { DEFAULT_FILTERS, DEFAULT_SCANNER_SETTINGS, type FundingEvidenceStatus, type ScanFilters, type ScannerSettings, type ScoredCandidate, type SecurityReport, type SourceTelemetry } from "./scanner/types";
 
 type StoreScanInput = {
   source: string;
@@ -22,6 +22,7 @@ const parseFilters = (value?: string | null): ScanFilters => {
 const parseJsonArray = (value: string) => { try { return JSON.parse(value) as string[]; } catch { return [] as string[]; } };
 const num = (value: number | null | undefined) => value === null || value === undefined ? null : Number(value);
 const toDateMs = (value: Date | null | undefined) => value?.getTime() ?? null;
+const fundingEvidenceStatus = (value: string | null): FundingEvidenceStatus => value === "overlap_observed" || value === "no_overlap_indexed_window" || value === "no_overlap_public_window" ? value : "unavailable";
 const SCANNER_LOCK_SCOPE = "global-scanner";
 const SCANNER_LOCK_TTL_MS = 5 * 60_000;
 
@@ -55,8 +56,8 @@ function mapSecurity(row: typeof securityReports.$inferSelect): SecurityReport {
     holderTopPct: num(row.holderTopPct), holderTop10Pct: num(row.holderTop10Pct), creatorAddress: row.creatorAddress,
     ruggedCreator: row.ruggedCreator, knownRuggedDeployer: row.knownRuggedDeployer, sprayCount24h: row.sprayCount24h, rugcheckScore: num(row.rugcheckScore), symbolConflict: row.symbolConflict,
     deepScanApplied: row.deepScanApplied, holderClusterScore: num(row.holderClusterScore), bundleDetected: row.bundleDetected, washTradingScore: num(row.washTradingScore),
-    fundingSourceOverlap: row.fundingSourceOverlap, token2022Flags: parseJsonArray(row.token2022Flags ?? "[]"), lpBurnVerified: row.lpBurnVerified,
-    flags: parseJsonArray(row.flagsJson), checkedAt: row.checkedAt.getTime(),
+    fundingSourceOverlap: row.fundingSourceOverlap, fundingEvidenceStatus: fundingEvidenceStatus(row.fundingEvidenceStatus), token2022Flags: parseJsonArray(row.token2022Flags ?? "[]"), lpBurnVerified: row.lpBurnVerified,
+    lpMintAddresses: [], flags: parseJsonArray(row.flagsJson), checkedAt: row.checkedAt.getTime(),
   };
 }
 
@@ -187,7 +188,7 @@ export async function storeScan(input: StoreScanInput) {
     liquidityDeltaPct: candidate.liquidityDeltaPct, liquidityPullDetected: candidate.liquidityPullDetected, liquidityGrowthStable: candidate.liquidityGrowthStable,
     liquidDexCount: candidate.liquidDexCount, metadataCompleteness: candidate.metadataCompleteness, jupiterPriceUsd: candidate.jupiterPriceUsd, priceDivergencePct: candidate.priceDivergencePct,
     holderClusterScore: candidate.security.holderClusterScore, bundleDetected: candidate.security.bundleDetected, washTradingScore: candidate.security.washTradingScore,
-    fundingSourceOverlap: candidate.security.fundingSourceOverlap, token2022Flags: JSON.stringify(candidate.security.token2022Flags), lpBurnVerified: candidate.security.lpBurnVerified,
+    fundingSourceOverlap: candidate.security.fundingSourceOverlap, fundingEvidenceStatus: candidate.security.fundingEvidenceStatus, token2022Flags: JSON.stringify(candidate.security.token2022Flags), lpBurnVerified: candidate.security.lpBurnVerified,
     factorsJson: JSON.stringify(candidate.factors), warningsJson: JSON.stringify(candidate.warnings), fetchedAt: input.fetchedAt,
   })));
   await db.insert(securityReports).values(input.candidates.map((candidate) => ({
@@ -197,7 +198,7 @@ export async function storeScan(input: StoreScanInput) {
     holderTopPct: candidate.security.holderTopPct, holderTop10Pct: candidate.security.holderTop10Pct, creatorAddress: candidate.security.creatorAddress,
     ruggedCreator: candidate.security.ruggedCreator, knownRuggedDeployer: candidate.security.knownRuggedDeployer, sprayCount24h: candidate.security.sprayCount24h, rugcheckScore: candidate.security.rugcheckScore, symbolConflict: candidate.security.symbolConflict,
     deepScanApplied: candidate.security.deepScanApplied, holderClusterScore: candidate.security.holderClusterScore, bundleDetected: candidate.security.bundleDetected,
-    washTradingScore: candidate.security.washTradingScore, fundingSourceOverlap: candidate.security.fundingSourceOverlap, token2022Flags: JSON.stringify(candidate.security.token2022Flags),
+    washTradingScore: candidate.security.washTradingScore, fundingSourceOverlap: candidate.security.fundingSourceOverlap, fundingEvidenceStatus: candidate.security.fundingEvidenceStatus, token2022Flags: JSON.stringify(candidate.security.token2022Flags),
     lpBurnVerified: candidate.security.lpBurnVerified, flagsJson: JSON.stringify(candidate.security.flags), checkedAt: new Date(candidate.security.checkedAt),
   })));
   return { scanId, persisted: true };

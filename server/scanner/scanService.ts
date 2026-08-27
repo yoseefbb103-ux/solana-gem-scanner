@@ -1,5 +1,6 @@
 import { applyFilters, scoreCandidates, type CandidateSignals } from "./scoring";
 import { randomUUID } from "node:crypto";
+import { inspectOnchainSecurity } from "./onchain";
 import { fetchSecurityReport } from "./security";
 import { fetchJupiterPrices, fetchLatestSolanaMarket, fetchTokenPriceUsd } from "./source";
 import type { ScanFilters, ScannerSettings, ScoredCandidate, SecurityReport } from "./types";
@@ -51,8 +52,25 @@ async function assessSecurity(candidates: Awaited<ReturnType<typeof fetchLatestS
   const reports = await Promise.all(processable.map(async (candidate) => [candidate.baseAddress, await fetchSecurityReport(candidate, isSymbolConflict(candidate.baseAddress, candidate.symbol, knownSymbols), false)] as const));
   for (const [address, report] of reports) preliminaryReports.set(address, report);
   const preScored = scoreCandidates(candidates, new Map(), preliminaryReports).filter((candidate) => candidate.security.status !== "flagged").sort((left, right) => right.opportunityScore - left.opportunityScore);
-  const deepAddresses = new Set(preScored.slice(0, deepScanLimit).map((candidate) => candidate.baseAddress));
-  const deepReports = await Promise.all(candidates.filter((candidate) => deepAddresses.has(candidate.baseAddress)).map(async (candidate) => [candidate.baseAddress, await fetchSecurityReport(candidate, isSymbolConflict(candidate.baseAddress, candidate.symbol, knownSymbols), true)] as const));
+  const effectiveDeepScanLimit = process.env.HELIUS_API_KEY || process.env.SOLANA_RPC_URL ? deepScanLimit : Math.min(deepScanLimit, 2);
+  const deepAddresses = new Set(preScored.slice(0, effectiveDeepScanLimit).map((candidate) => candidate.baseAddress));
+  const deepReports = await Promise.all(candidates.filter((candidate) => deepAddresses.has(candidate.baseAddress)).map(async (candidate) => {
+    const report = await fetchSecurityReport(candidate, isSymbolConflict(candidate.baseAddress, candidate.symbol, knownSymbols), true);
+    const onchain = await inspectOnchainSecurity(candidate, report.lpMintAddresses);
+    return [candidate.baseAddress, {
+      ...report,
+      source: process.env.HELIUS_API_KEY ? "RugCheck + Helius + Solana RPC" : "RugCheck + Solana RPC",
+      status: report.status === "flagged" ? "flagged" : onchain.status === "unavailable" ? "unavailable" : report.status,
+      holderClusterScore: onchain.holderClusterScore,
+      bundleDetected: onchain.bundleDetected,
+      washTradingScore: onchain.washTradingScore,
+      fundingSourceOverlap: onchain.fundingSourceOverlap,
+      fundingEvidenceStatus: onchain.fundingEvidenceStatus,
+      token2022Flags: onchain.token2022Flags,
+      lpBurnVerified: onchain.lpBurnVerified,
+      flags: Array.from(new Set([...report.flags, ...onchain.flags])),
+    }] as const;
+  }));
   for (const [address, report] of deepReports) preliminaryReports.set(address, report);
   const creators = Array.from(new Set(Array.from(preliminaryReports.values()).map((report) => report.creatorAddress).filter((value): value is string => Boolean(value))));
   const [knownDeployers, sprayCounts] = await Promise.all([getKnownRuggedDeployers(creators), getCreatorSprayCounts(creators)]);

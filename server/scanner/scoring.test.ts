@@ -52,4 +52,12 @@ describe("Solana scanner scoring", () => {
     expect(scored.riskScore).toBeGreaterThanOrEqual(50);
     expect(scored.warnings.some((warning) => warning.includes("نمط رش"))).toBe(true);
   });
+
+  it("raises transparent risk for observed on-chain clustering, bundling, and shared funding", () => {
+    const observed = { ...unavailableSecurity(baseline), status: "passed" as const, holderClusterScore: 60, bundleDetected: true, fundingSourceOverlap: true, token2022Flags: ["Transfer Hook مرصود"] };
+    const scored = scoreCandidate(baseline, undefined, observed);
+    expect(scored.riskScore).toBeGreaterThanOrEqual(45);
+    expect(scored.warnings.some((warning) => warning.includes("تمويل مشترك"))).toBe(true);
+    expect(scored.warnings.some((warning) => warning.includes("Token-2022"))).toBe(true);
+  });
 });

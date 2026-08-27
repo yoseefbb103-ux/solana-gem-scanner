@@ -3,7 +3,7 @@ import type { SecurityReport, TokenCandidate } from "./types";
 type RugCheckRisk = { name?: string; description?: string; level?: string; score?: number };
 type RugCheckHolder = { pct?: number };
 type RugCheckMarket = {
-  lp?: { lpLockedPct?: number; lockedPct?: number; lockPercentage?: number; isLocked?: boolean };
+  lp?: { lpLockedPct?: number; lockedPct?: number; lockPercentage?: number; isLocked?: boolean; lpMint?: string; lpTokenMint?: string; tokenMint?: string };
 };
 type RugCheckReport = {
   creator?: string;
@@ -68,6 +68,10 @@ function getRugFlags(risks: RugCheckRisk[] | undefined) {
     .slice(0, 5);
 }
 
+function getLpMintAddresses(markets: RugCheckMarket[] | undefined) {
+  return Array.from(new Set((markets ?? []).flatMap((market) => [market.lp?.lpMint, market.lp?.lpTokenMint, market.lp?.tokenMint]).filter((value): value is string => Boolean(value && /^[1-9A-HJ-NP-Za-km-z]{32,64}$/.test(value)))));
+}
+
 export async function fetchSecurityReport(candidate: TokenCandidate, symbolConflict: boolean, deepScanApplied: boolean): Promise<SecurityReport> {
   const checkedAt = Date.now();
   try {
@@ -110,8 +114,10 @@ export async function fetchSecurityReport(candidate: TokenCandidate, symbolConfl
       bundleDetected: null,
       washTradingScore: null,
       fundingSourceOverlap: null,
+      fundingEvidenceStatus: "unavailable",
       token2022Flags: [],
       lpBurnVerified: null,
+      lpMintAddresses: getLpMintAddresses(report.markets),
       flags,
       checkedAt,
     };
@@ -139,8 +145,10 @@ export async function fetchSecurityReport(candidate: TokenCandidate, symbolConfl
       bundleDetected: null,
       washTradingScore: null,
       fundingSourceOverlap: null,
+      fundingEvidenceStatus: "unavailable",
       token2022Flags: [],
       lpBurnVerified: null,
+      lpMintAddresses: [],
       flags: [`بيانات أمان غير متاحة: ${message}`],
       checkedAt,
     };
