@@ -4,7 +4,6 @@ services:
     name: solana-gem-scanner
     plan: free
     buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
-    preDeployCommand: pnpm drizzle-kit migrate
     startCommand: pnpm start
     healthCheckPath: /
     autoDeployTrigger: commit
