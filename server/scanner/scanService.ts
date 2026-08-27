@@ -29,7 +29,7 @@ import {
   storeScan,
   wasRecentlyAlerted,
 } from "../scannerDb";
-import { sendTelegramAlert, sendTelegramEarlyWatch } from "../telegram";
+import { sendTelegramAlert } from "../telegram";
 
 export type ScanOrigin = "manual" | "worker";
 export type ScannerRun = {
@@ -116,19 +116,11 @@ export function selectThresholdCandidates(candidates: ScoredCandidate[], setting
   return candidates.filter((candidate) => (candidate.signalTier === "strong" || candidate.signalTier === "confirmed") && candidate.decision === "monitor" && candidate.opportunityScore >= settings.opportunityAlertThreshold && candidate.riskScore <= settings.riskAlertThreshold);
 }
 
-async function recordCandidateAlerts(candidates: ScoredCandidate[], eligibleForThreshold: ScoredCandidate[], settings: ScannerSettings, previousDecisions: Map<string, ScoredCandidate["decision"]>) {
-  const urgent = candidates.filter((candidate) => candidate.liquidityPullDetected || ((previousDecisions.get(candidate.baseAddress) === "monitor" || previousDecisions.get(candidate.baseAddress) === "caution") && candidate.decision === "avoid"));
-  for (const candidate of urgent) {
-    const alertType = candidate.liquidityPullDetected ? "liquidity_pull" : "decision_flip";
-    const detail = candidate.liquidityPullDetected ? "تحذير عاجل: احتمال سحب سيولة نشط الآن؛ استُبعد التوكن من أفضل الآن والتنبيهات العادية." : "تحذير عاجل: توكن كان تحت المراقبة أصبح الآن في قائمة التجنب.";
-    await recordInAppAlert(candidate, detail, alertType);
-    const delivery = await sendTelegramAlert(candidate, alertType);
-    await recordTelegramAlert(candidate, delivery.status, delivery.detail, alertType);
-  }
+async function recordCandidateAlerts(candidates: ScoredCandidate[], eligibleForThreshold: ScoredCandidate[], settings: ScannerSettings, _previousDecisions: Map<string, ScoredCandidate["decision"]>) {
   const matches = selectThresholdCandidates(eligibleForThreshold, settings);
   for (const candidate of matches) {
     if (!candidate.liquidityPullDetected && !await wasRecentlyAlerted(candidate.baseAddress, settings.cooldownMinutes)) {
-      await recordInAppAlert(candidate, `إشارة تجاوزت العتبات المخصصة؛ الفحص للقراءة فقط وليس توصية تداول.`);
+      await recordInAppAlert(candidate, "جوهرة اجتازت بوابات الفرز؛ الفحص للقراءة فقط وليس توصية تداول.");
       const delivery = await sendTelegramAlert(candidate, "threshold");
       await recordTelegramAlert(candidate, delivery.status, delivery.detail);
     }
@@ -137,10 +129,7 @@ async function recordCandidateAlerts(candidates: ScoredCandidate[], eligibleForT
 
 async function recordEarlyDiscoveryAlerts(discoveries: Awaited<ReturnType<typeof recordEarlyDiscoveries>>) {
   for (const watch of discoveries.slice(0, 4)) {
-    const detail = "رصد مبكر: ظهر زوج جديد بسيولة أولية؛ لم يكتمل فحص الأمان أو التسعير بعد.";
-    await recordEarlyWatchAlert(watch, detail);
-    const delivery = await sendTelegramEarlyWatch(watch);
-    await recordEarlyWatchAlert(watch, delivery.detail, delivery.status, "telegram");
+    await recordEarlyWatchAlert(watch, "رصد مبكر داخلي فقط؛ لا يُرسل إلى Telegram قبل اكتمال فحوص الأمان والسيولة والتسعير.");
   }
 }
 

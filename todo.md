@@ -136,3 +136,13 @@
 - [x] إثبات إرسال Telegram من Worker بعد التحديث الجديد؛ السجل أظهر `تم إرسال صورة وتنبيه تيليجرام` و`تم إرسال تنبيه تيليجرام` دون كشف الأسرار.
 - [x] التحقق من رابط Web Ohio بعد نشر commit `9c4bb6f`: أعاد HTTP 200 وفتحت الواجهة العربية بنجاح.
 - [x] توثيق نتيجة فحص الرابط النهائي لخدمة Web Ohio في `docs/render-verification.md` ثم تعليم بند Web كمكتمل.
+
+- [x] إزالة تنبيهات EARLY WATCH وdecision_flip وliquidity_pull من Telegram والاكتفاء بتنبيهات الجواهر المعتمدة.
+- [x] إعادة تصميم قالب Telegram العربي ليكون مختصراً ومرتباً مع صورة العملة عند توفر HTTPS.
+- [x] تشديد بوابة الجوهرة بحيث لا ترسل إلا signalTier confirmed أو strong مع أمان متاح وسيولة/حجم/سعر قابل للمراجعة.
+- [x] إضافة اختبارات تمنع الرسائل المزعجة وتتحقق من قالب الجوهرة والاحتياط النصي للصورة.
+- [x] تحديث README وrender-verification.md بسياسة التنبيهات الجديدة والتحذير المالي.
+- [x] مزامنة تعديل Telegram والفلترة مع GitHub main والتحقق من Render Ohio Web وWorker.
+
+## History / User feedback
+- [x] User requested Telegram to show only selected gems in a professional, non-noisy format; no profit guarantees or automatic trading claims are allowed.
