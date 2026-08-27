@@ -26,7 +26,7 @@ describe("DEX Screener market cache", () => {
   it("shares one in-flight market request and reuses the completed result briefly", async () => {
     global.fetch = vi.fn().mockImplementation(async (url: string) => {
       if (url.includes("token-pairs")) {
-        return { ok: true, status: 200, json: async () => [{ chainId: "solana", pairAddress: "pairA", baseToken: { address: "mintA", symbol: "TEST", name: "Test" }, dexId: "raydium", priceUsd: "0.1", liquidity: { usd: 10_000 }, volume: { h1: 1_000, h24: 2_000 }, txns: { h1: { buys: 3, sells: 2 } }, priceChange: { m5: 1, h1: 2, h6: 3, h24: 4 }, pairCreatedAt: Date.now() }] };
+        return { ok: true, status: 200, json: async () => [{ chainId: "solana", pairAddress: "pairA", baseToken: { address: "mintA", symbol: "TEST", name: "Test" }, info: { imageUrl: "https://cdn.example.com/test.png" }, dexId: "raydium", priceUsd: "0.1", liquidity: { usd: 10_000 }, volume: { h1: 1_000, h24: 2_000 }, txns: { h1: { buys: 3, sells: 2 } }, priceChange: { m5: 1, h1: 2, h6: 3, h24: 4 }, pairCreatedAt: Date.now() }] };
       }
       return { ok: true, status: 200, json: async () => [{ chainId: "solana", tokenAddress: "mintA" }] };
     }) as typeof fetch;
@@ -37,7 +37,17 @@ describe("DEX Screener market cache", () => {
     expect(first.candidates).toHaveLength(1);
     expect(second.candidates[0]?.baseAddress).toBe("mintA");
     expect(cached.candidates[0]?.baseAddress).toBe("mintA");
+    expect(cached.candidates[0]?.imageUrl).toBe("https://cdn.example.com/test.png");
     expect(global.fetch).toHaveBeenCalledTimes(5);
+  });
+
+  it("يرفض روابط الصور غير الآمنة القادمة من المصدر العام", async () => {
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes("token-pairs")) return { ok: true, status: 200, json: async () => [{ chainId: "solana", pairAddress: "pairA", baseToken: { address: "mintA", symbol: "TEST", name: "Test" }, info: { imageUrl: "http://insecure.example.com/test.png" }, dexId: "raydium", priceUsd: "0.1", liquidity: { usd: 10_000 }, volume: { h1: 1_000, h24: 2_000 }, txns: { h1: { buys: 3, sells: 2 } }, priceChange: { m5: 1, h1: 2, h6: 3, h24: 4 }, pairCreatedAt: Date.now() }] };
+      return { ok: true, status: 200, json: async () => [{ chainId: "solana", tokenAddress: "mintA" }] };
+    }) as typeof fetch;
+    const result = await fetchLatestSolanaMarket();
+    expect(result.candidates[0]?.imageUrl).toBeNull();
   });
 
   it("يجمع طلبات الرصد المبكر المتزامنة ويحتفظ فقط بالزوج ذي السيولة الأولية", async () => {

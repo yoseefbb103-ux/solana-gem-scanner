@@ -52,6 +52,17 @@ function metadataScore(pair: DexScreenerPair, profile?: TokenProfile) {
   return Number(Boolean(pair.info?.imageUrl || profile?.icon)) + Number(Boolean(pair.info?.websites?.length || profile?.links?.some((link) => link.type === "website"))) + Number(Boolean(pair.info?.socials?.length || profile?.links?.some((link) => link.type && link.type !== "website")));
 }
 
+function safeImageUrl(pair: DexScreenerPair, profile?: TokenProfile) {
+  const candidate = pair.info?.imageUrl || profile?.icon;
+  if (!candidate) return null;
+  try {
+    const parsed = new URL(candidate);
+    return parsed.protocol === "https:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 function toCandidate(pair: DexScreenerPair, pairs: DexScreenerPair[], profile: ProfileWithSource): TokenCandidate | null {
   const baseAddress = pair.baseToken?.address;
   const pairAddress = pair.pairAddress;
@@ -63,7 +74,7 @@ function toCandidate(pair: DexScreenerPair, pairs: DexScreenerPair[], profile: P
   const liquidDexCount = new Set(pairs.filter((item) => item.chainId === "solana" && Number(item.liquidity?.usd ?? 0) >= 5_000).map((item) => item.dexId).filter(Boolean)).size;
   return {
     pairAddress, baseAddress, symbol: pair.baseToken?.symbol || "?", name: pair.baseToken?.name || pair.baseToken?.symbol || "توكن غير مسمى",
-    dexId: pair.dexId || "غير معروف", sourceUrl: pair.url || profile.url || `https://dexscreener.com/solana/${pairAddress}`,
+    dexId: pair.dexId || "غير معروف", sourceUrl: pair.url || profile.url || `https://dexscreener.com/solana/${pairAddress}`, imageUrl: safeImageUrl(pair, profile),
     priceUsd: Number.isFinite(price) ? price : null, liquidityUsd: Number(pair.liquidity?.usd ?? 0), volumeH1: Number(pair.volume?.h1 ?? 0), volumeH24: Number(pair.volume?.h24 ?? 0),
     transactionsH1: buysH1 + sellsH1, buysH1, sellsH1, priceChangeM5: Number(pair.priceChange?.m5 ?? 0), priceChangeH1: Number(pair.priceChange?.h1 ?? 0),
     priceChangeH6: Number(pair.priceChange?.h6 ?? 0), priceChangeH24: Number(pair.priceChange?.h24 ?? 0), pairCreatedAt: typeof pair.pairCreatedAt === "number" ? pair.pairCreatedAt : null,

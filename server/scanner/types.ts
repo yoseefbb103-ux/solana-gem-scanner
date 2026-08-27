@@ -29,7 +29,7 @@ export type DexScreenerPair = {
 };
 
 export type TokenCandidate = {
-  pairAddress: string; baseAddress: string; symbol: string; name: string; dexId: string; sourceUrl: string; priceUsd: number | null;
+  pairAddress: string; baseAddress: string; symbol: string; name: string; dexId: string; sourceUrl: string; imageUrl?: string | null; priceUsd: number | null;
   liquidityUsd: number; volumeH1: number; volumeH24: number; transactionsH1: number; buysH1: number; sellsH1: number;
   priceChangeM5: number; priceChangeH1: number; priceChangeH6: number; priceChangeH24: number; pairCreatedAt: number | null;
   discoverySources: string[]; liquidDexCount: number; metadataCompleteness: number;
