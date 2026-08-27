@@ -6,9 +6,10 @@ databases:
 services:
   - type: web
     runtime: node
-    name: solana-gem-scanner
+    name: solana-gem-scanner-ohio
     plan: free
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build && pnpm db:push
+    region: ohio
+    buildCommand: npm install -g pnpm@10.4.1 && pnpm install --frozen-lockfile && pnpm build && pnpm db:push
     startCommand: pnpm start
     healthCheckPath: /
     autoDeployTrigger: commit
@@ -29,9 +30,10 @@ services:
         sync: false
   - type: worker
     runtime: node
-    name: solana-gem-scanner-worker
+    name: solana-gem-scanner-worker-ohio
     plan: starter
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build && pnpm db:push
+    region: ohio
+    buildCommand: npm install -g pnpm@10.4.1 && pnpm install --frozen-lockfile && pnpm build && pnpm db:push
     startCommand: pnpm start:worker
     autoDeployTrigger: commit
     envVars:
