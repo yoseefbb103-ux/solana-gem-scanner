@@ -48,11 +48,19 @@ export type SecurityReport = {
   token2022Flags: string[]; lpBurnVerified: boolean | null; lpMintAddresses: string[];
 };
 
+export type ConfidenceBreakdown = {
+  data: number;
+  safety: number;
+  momentum: number;
+  manipulation: number;
+};
+
 export type ScoredCandidate = TokenCandidate & {
   ageHours: number | null; opportunityScore: number; riskScore: number; scoreDelta: number;
   factors: string[]; warnings: string[]; security: SecurityReport; decision: "monitor" | "caution" | "avoid"; signalTier: "confirmed" | "strong" | "watch" | "avoid";
   estimatedSlippage200: number | null; estimatedSlippage500: number | null; momentumConsistency: "positive" | "mixed" | "negative" | "unknown";
   jupiterPriceUsd: number | null; priceDivergencePct: number | null; liquidityDeltaPct: number | null; liquidityPullDetected: boolean; liquidityGrowthStable: boolean;
+  confidence: ConfidenceBreakdown; manipulationScore: number;
 };
 
 export type SourceTelemetry = {

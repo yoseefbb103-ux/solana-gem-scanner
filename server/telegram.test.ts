@@ -54,3 +54,10 @@ describe("sendTelegramAlert", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+  it("يرفض الجوهرة ذات الثقة المنخفضة حتى مع إشارة strong", async () => {
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-token"); vi.stubEnv("TELEGRAM_CHAT_ID", "123");
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    await expect(sendTelegramAlert({ ...candidate, confidence: { data: 82, safety: 45, momentum: 70, manipulation: 90 } })).resolves.toEqual({ status: "skipped", detail: "تم استبعاد التنبيه: ليس جوهرة مؤهلة لـ Telegram" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });

@@ -121,13 +121,13 @@ export async function getRecentlyProcessedPairAddresses(windowMinutes = 1) {
 
 export async function getCandidateHistory(addresses: string[]) {
   const db = await getDb();
-  const history = new Map<string, { liquidityUsd: number; decision: ScoredCandidate["decision"]; fetchedAt: number }[]>();
+  const history = new Map<string, { liquidityUsd: number; volumeH1: number; transactionsH1: number; decision: ScoredCandidate["decision"]; fetchedAt: number }[]>();
   if (!db || !addresses.length) return history;
   const threshold = new Date(Date.now() - 20 * 60_000);
-  const rows = await db.select({ baseAddress: scannerSnapshots.baseAddress, liquidityUsd: scannerSnapshots.liquidityUsd, decision: scannerSnapshots.decision, fetchedAt: scannerSnapshots.fetchedAt }).from(scannerSnapshots).where(and(inArray(scannerSnapshots.baseAddress, addresses), gte(scannerSnapshots.fetchedAt, threshold))).orderBy(desc(scannerSnapshots.fetchedAt)).limit(1000);
+  const rows = await db.select({ baseAddress: scannerSnapshots.baseAddress, liquidityUsd: scannerSnapshots.liquidityUsd, volumeH1: scannerSnapshots.volumeH1, transactionsH1: scannerSnapshots.transactionsH1, decision: scannerSnapshots.decision, fetchedAt: scannerSnapshots.fetchedAt }).from(scannerSnapshots).where(and(inArray(scannerSnapshots.baseAddress, addresses), gte(scannerSnapshots.fetchedAt, threshold))).orderBy(desc(scannerSnapshots.fetchedAt)).limit(1000);
   for (const row of rows) {
     const records = history.get(row.baseAddress) ?? [];
-    records.push({ liquidityUsd: Number(row.liquidityUsd), decision: row.decision, fetchedAt: row.fetchedAt.getTime() });
+    records.push({ liquidityUsd: Number(row.liquidityUsd), volumeH1: Number(row.volumeH1), transactionsH1: Number(row.transactionsH1), decision: row.decision, fetchedAt: row.fetchedAt.getTime() });
     history.set(row.baseAddress, records);
   }
   return history;

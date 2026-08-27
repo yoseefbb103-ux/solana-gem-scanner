@@ -96,3 +96,20 @@ describe("Solana scanner scoring", () => {
     expect(scored.warnings.some((warning) => warning.includes("Token-2022"))).toBe(true);
   });
 });
+
+
+  it("separates data, safety, momentum, and manipulation confidence", () => {
+    const passedSecurity = { ...unavailableSecurity(baseline), status: "passed" as const, lpLockStatus: "locked" as const, rugcheckScore: 90 };
+    const scored = scoreCandidate({ ...baseline, discoverySources: ["ملفات حديثة", "ملفات محدّثة"], metadataCompleteness: 3 }, undefined, passedSecurity, { liquidityGrowthStable: true, jupiterChecked: true, jupiterPriceUsd: baseline.priceUsd });
+    expect(scored.confidence.data).toBeGreaterThanOrEqual(80);
+    expect(scored.confidence.safety).toBeGreaterThanOrEqual(70);
+    expect(scored.confidence.momentum).toBeGreaterThanOrEqual(45);
+    expect(scored.confidence.manipulation).toBeGreaterThanOrEqual(70);
+  });
+
+  it("rejects a high-scoring candidate when manipulation confidence is low", () => {
+    const manipulatedSecurity = { ...unavailableSecurity(baseline), status: "passed" as const, lpLockStatus: "locked" as const, holderClusterScore: 70, bundleDetected: true, fundingSourceOverlap: true };
+    const scored = scoreCandidate({ ...baseline, volumeH1: 500_000, transactionsH1: 80, buysH1: 78, sellsH1: 2 }, undefined, manipulatedSecurity);
+    expect(scored.manipulationScore).toBeGreaterThanOrEqual(50);
+    expect(getGemGateFailures(scored, { opportunityAlertThreshold: 40, riskAlertThreshold: 90 })).toContain("احتمال التلاعب مرتفع");
+  });

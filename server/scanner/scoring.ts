@@ -6,6 +6,8 @@ export type CandidateSignals = {
   liquidityDeltaPct?: number | null;
   liquidityPullDetected?: boolean;
   liquidityGrowthStable?: boolean;
+  observationCount?: number;
+  activityTrend?: "rising" | "flat" | "falling" | "unknown";
 };
 
 const clamp = (value: number, min = 0, max = 100) => Math.max(min, Math.min(max, value));
@@ -64,6 +66,9 @@ export function scoreCandidate(candidate: TokenCandidate, previousScore?: number
   if (candidate.liquidDexCount >= 2) factors.push("سيولة موزعة عبر أكثر من منصة تداول");
   if (candidate.metadataCompleteness >= 2) factors.push("بيانات وصفية متاحة من المصدر العام");
   if (signals.liquidityGrowthStable) factors.push("نمو سيولة متسق عبر عدة فحصات");
+  if (signals.observationCount !== undefined && signals.observationCount >= 3) factors.push("سجل زمني كافٍ للمقارنة بين عدة فحصات");
+  if (signals.activityTrend === "rising") factors.push("اتجاه النشاط صاعد مقارنة باللقطة السابقة");
+  if (signals.activityTrend === "falling") warnings.push("اتجاه النشاط هابط مقارنة باللقطة السابقة");
   if (signals.liquidityPullDetected) warnings.unshift("احتمال سحب سيولة نشط الآن؛ استبعد من أفضل الآن");
   if (security.sprayCount24h >= 3) warnings.push("نمط رش: نفس الناشر أطلق عدة توكنات خلال 24 ساعة");
   if (security.holderClusterScore !== null && security.holderClusterScore >= 40) warnings.push("تمركز حسابات مرتفع ضمن أكبر الحائزين المرصودين on-chain");
@@ -86,7 +91,33 @@ export function scoreCandidate(candidate: TokenCandidate, previousScore?: number
   const decision: ScoredCandidate["decision"] = signals.liquidityPullDetected || security.mintAuthorityOpen || security.freezeAuthorityOpen || security.lpLockStatus === "unlocked" || security.knownRuggedDeployer || riskScore >= 65 ? "avoid" : security.status === "passed" && riskScore <= 28 && opportunityScore >= 55 ? "monitor" : "caution";
   const hasReliablePriceCheck = signals.jupiterChecked === true && jupiterPriceUsd !== null && priceDivergencePct !== null && priceDivergencePct <= 12;
   const signalTier: ScoredCandidate["signalTier"] = decision === "avoid" ? "avoid" : security.status === "passed" && hasReliablePriceCheck && riskScore <= 22 && opportunityScore >= 72 ? "confirmed" : security.status === "passed" && riskScore <= 35 && opportunityScore >= 62 ? "strong" : opportunityScore >= 45 && riskScore <= 55 ? "watch" : "avoid";
-  return { ...candidate, ageHours: ageHours === null ? null : round(ageHours), opportunityScore, riskScore, scoreDelta: round(opportunityScore - (previousScore ?? opportunityScore)), factors: Array.from(new Set(factors)), warnings: Array.from(new Set(warnings)), security, decision, signalTier, estimatedSlippage200: slippage200, estimatedSlippage500: slippage500, momentumConsistency: consistency, jupiterPriceUsd, priceDivergencePct, liquidityDeltaPct: signals.liquidityDeltaPct ?? null, liquidityPullDetected: Boolean(signals.liquidityPullDetected), liquidityGrowthStable: Boolean(signals.liquidityGrowthStable) };
+  const manipulationScore = round(clamp(
+    (volumeRatio > 5 ? 28 : volumeRatio > 3 ? 14 : 0) +
+    (totalTransactions >= 12 && balance < 0.25 ? 20 : 0) +
+    (security.holderClusterScore !== null && security.holderClusterScore >= 40 ? 18 : 0) +
+    (security.bundleDetected ? 18 : 0) +
+    (security.fundingSourceOverlap ? 16 : 0) +
+    (security.sprayCount24h >= 3 ? 12 : 0) +
+    (signals.liquidityPullDetected ? 35 : 0),
+  ));
+  const dataConfidence = Math.round(clamp(
+    25 + Number(candidate.priceUsd !== null) * 15 + Number(candidate.liquidityUsd > 0) * 15 +
+    Number(candidate.volumeH1 > 0) * 10 + Number(candidate.transactionsH1 > 0) * 10 +
+    Math.min(candidate.discoverySources.length, 2) * 5 + Math.min(candidate.metadataCompleteness, 3) * 5 +
+    Math.min(signals.observationCount ?? 0, 3) * 3,
+  ));
+  const safetyConfidence = Math.round(clamp(
+    (security.status === "passed" ? 55 : security.status === "flagged" ? 25 : 10) +
+    Number(!security.mintAuthorityOpen && !security.freezeAuthorityOpen) * 15 +
+    Number(security.lpLockStatus === "locked") * 10 + Number(security.deepScanApplied) * 10 +
+    Number(security.holderTop10Pct !== null) * 5 + Number(security.rugcheckScore !== null) * 5,
+  ));
+  const momentumConfidence = Math.round(clamp(
+    (consistency === "positive" ? 50 : consistency === "mixed" ? 30 : consistency === "unknown" ? 10 : 5) +
+    Math.min(25, totalTransactions / 4) + Math.min(15, Math.max(0, candidate.volumeH1 / 5_000)) +
+    Number(signals.liquidityGrowthStable) * 10 + Number(signals.activityTrend === "rising") * 8 - Number(signals.activityTrend === "falling") * 10,
+  ));
+  return { ...candidate, ageHours: ageHours === null ? null : round(ageHours), opportunityScore, riskScore, scoreDelta: round(opportunityScore - (previousScore ?? opportunityScore)), factors: Array.from(new Set(factors)), warnings: Array.from(new Set(warnings)), security, decision, signalTier, estimatedSlippage200: slippage200, estimatedSlippage500: slippage500, momentumConsistency: consistency, jupiterPriceUsd, priceDivergencePct, liquidityDeltaPct: signals.liquidityDeltaPct ?? null, liquidityPullDetected: Boolean(signals.liquidityPullDetected), liquidityGrowthStable: Boolean(signals.liquidityGrowthStable), confidence: { data: dataConfidence, safety: safetyConfidence, momentum: momentumConfidence, manipulation: Math.round(100 - manipulationScore) }, manipulationScore };
 }
 
 export function scoreCandidates(candidates: TokenCandidate[], previousScores: Map<string, number>, securityByAddress: Map<string, SecurityReport>, signalsByAddress = new Map<string, CandidateSignals>()) {
@@ -106,6 +137,7 @@ export function scoreCandidates(candidates: TokenCandidate[], previousScores: Ma
 
 export function getGemGateFailures(candidate: ScoredCandidate, settings: { opportunityAlertThreshold: number; riskAlertThreshold: number }) {
   const failures: string[] = [];
+  const confidence = candidate.confidence ?? { data: 100, safety: 100, momentum: 100, manipulation: 100 };
   if (candidate.signalTier !== "strong" && candidate.signalTier !== "confirmed") failures.push("مستوى الإشارة أقل من strong");
   if (candidate.decision !== "monitor") failures.push("قرار المراقبة غير متحقق");
   if (candidate.security.status !== "passed") failures.push("فحص الأمان غير مارّ");
@@ -113,6 +145,10 @@ export function getGemGateFailures(candidate: ScoredCandidate, settings: { oppor
   if (candidate.volumeH1 < 5_000) failures.push("حجم الساعة أقل من الحد الأدنى");
   if (candidate.opportunityScore < settings.opportunityAlertThreshold) failures.push("درجة الفرصة دون العتبة");
   if (candidate.riskScore > settings.riskAlertThreshold) failures.push("درجة المخاطرة فوق العتبة");
+  if (confidence.data < 65) failures.push("ثقة البيانات غير كافية");
+  if (confidence.safety < 70) failures.push("ثقة الأمان غير كافية");
+  if (confidence.momentum < 45) failures.push("جودة الزخم غير كافية");
+  if (confidence.manipulation < 70) failures.push("احتمال التلاعب مرتفع");
   if (candidate.liquidityPullDetected) failures.push("هبوط سيولة حرج");
   if (candidate.security.knownRuggedDeployer) failures.push("الناشر مرتبط بإشارة رَقّ سلبية");
   return failures;

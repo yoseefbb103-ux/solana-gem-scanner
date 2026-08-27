@@ -123,7 +123,9 @@ function buildLiquiditySignals(candidates: Awaited<ReturnType<typeof fetchLatest
     const liquidityPullDetected = Boolean(latest && Date.now() - latest.fetchedAt <= 5 * 60_000 && (liquidityDeltaPct ?? 0) <= -38);
     const sequence = [...prior.slice(-2).map((entry) => entry.liquidityUsd), candidate.liquidityUsd];
     const liquidityGrowthStable = sequence.length === 3 && sequence[0] > 0 && sequence[1] > sequence[0] && sequence[2] > sequence[1] && sequence.every((value, index) => index === 0 || value >= sequence[index - 1] * 0.95);
-    signals.set(candidate.baseAddress, { liquidityDeltaPct, liquidityPullDetected, liquidityGrowthStable });
+    const latestActivity = latest?.transactionsH1 ?? 0;
+    const activityTrend: CandidateSignals["activityTrend"] = !latest ? "unknown" : candidate.transactionsH1 > latestActivity * 1.15 ? "rising" : candidate.transactionsH1 < latestActivity * 0.7 ? "falling" : "flat";
+    signals.set(candidate.baseAddress, { liquidityDeltaPct, liquidityPullDetected, liquidityGrowthStable, observationCount: prior.length + 1, activityTrend });
   }
   return signals;
 }

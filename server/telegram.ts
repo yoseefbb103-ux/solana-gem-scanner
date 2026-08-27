@@ -27,7 +27,11 @@ export function isTelegramGemCandidate(candidate: ScoredCandidate) {
     candidate.liquidityUsd >= 10_000 &&
     candidate.volumeH1 >= 5_000 &&
     candidate.opportunityScore >= 62 &&
-    candidate.riskScore <= 35
+    candidate.riskScore <= 35 &&
+    (candidate.confidence?.data ?? 100) >= 65 &&
+    (candidate.confidence?.safety ?? 100) >= 70 &&
+    (candidate.confidence?.momentum ?? 100) >= 45 &&
+    (candidate.confidence?.manipulation ?? 100) >= 70
   );
 }
 
@@ -43,6 +47,7 @@ function formatAlert(candidate: ScoredCandidate): TelegramPayload {
     `🔹 ${candidate.name} (${candidate.symbol})`,
     `🏷️ الإشارة: ${tier}`,
     `📊 الفرصة ${candidate.opportunityScore.toFixed(1)}/100  |  المخاطرة ${candidate.riskScore.toFixed(1)}/100`,
+    `🧭 الثقة: بيانات ${candidate.confidence?.data ?? 0} | أمان ${candidate.confidence?.safety ?? 0} | زخم ${candidate.confidence?.momentum ?? 0}`,
     "",
     `💵 السعر ${formatPrice(candidate.priceUsd)}$  |  💧 السيولة ${formatMoney(candidate.liquidityUsd)}`,
     `📈 حجم 1س ${formatMoney(candidate.volumeH1)}  |  المعاملات ${candidate.transactionsH1.toLocaleString("en-US")}`,
