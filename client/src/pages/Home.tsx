@@ -2,170 +2,79 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
-import { Activity, AlertTriangle, ArrowUpRight, Database, Eye, Filter, Loader2, Radar, RefreshCw, Save, ShieldAlert, Sparkles, Zap } from "lucide-react";
+import { Activity, AlertTriangle, ArrowUpRight, BellRing, Bookmark, BookmarkCheck, Database, Eye, Filter, Gauge, Loader2, Radar, RefreshCw, Save, Settings2, ShieldAlert, ShieldCheck, ShieldQuestion, ShieldX, Sparkles, Zap } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 type Filters = { minLiquidity: number; minVolume: number; maxAgeHours: number; maxRisk: number };
-type Candidate = {
-  pairAddress: string; baseAddress: string; symbol: string; name: string; dexId: string; sourceUrl: string; priceUsd: number | null;
-  liquidityUsd: number; volumeH1: number; volumeH24: number; transactionsH1: number; priceChangeM5: number; priceChangeH1: number;
-  ageHours: number | null; opportunityScore: number; riskScore: number; scoreDelta: number; factors: string[]; warnings: string[];
-};
-
-type ScanView = {
-  scanId?: number | null; source: string; fetchedAt: Date | string; totalCandidates: number; filters: Filters;
-  persistenceAvailable: boolean; candidates: Candidate[];
-};
+type Security = { status: "passed" | "flagged" | "unavailable"; mintAuthorityOpen: boolean; freezeAuthorityOpen: boolean; lpLockStatus: "locked" | "unlocked" | "unknown"; holderTopPct: number | null; holderTop10Pct: number | null; ruggedCreator: boolean; symbolConflict: boolean; deepScanApplied: boolean; flags: string[] };
+type Candidate = { pairAddress: string; baseAddress: string; symbol: string; name: string; dexId: string; sourceUrl: string; priceUsd: number | null; liquidityUsd: number; volumeH1: number; volumeH24: number; transactionsH1: number; priceChangeM5: number; priceChangeH1: number; priceChangeH6: number; priceChangeH24: number; ageHours: number | null; opportunityScore: number; riskScore: number; scoreDelta: number; factors: string[]; warnings: string[]; security: Security | null; decision?: "monitor" | "caution" | "avoid"; estimatedSlippage200?: number | null; estimatedSlippage500?: number | null; momentumConsistency?: "positive" | "mixed" | "negative" | "unknown" };
+type Settings = { strictSecurity: boolean; opportunityAlertThreshold: number; riskAlertThreshold: number; cooldownMinutes: number; deepScanLimit: number };
+type ScanView = { scanId?: number | null; source: string; fetchedAt: Date | string; totalCandidates: number; visibleCount?: number; filters: Filters; settings?: Settings; persistenceAvailable: boolean; candidates: Candidate[]; sourceTelemetry?: { throttled: boolean; slowRequestCount: number; errorCount: number; latestStatus: number | null; maxLatencyMs: number } };
 
 const DEFAULT_FILTERS: Filters = { minLiquidity: 0, minVolume: 0, maxAgeHours: 168, maxRisk: 100 };
-
+const DEFAULT_SETTINGS: Settings = { strictSecurity: true, opportunityAlertThreshold: 72, riskAlertThreshold: 28, cooldownMinutes: 120, deepScanLimit: 8 };
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 });
 const number = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 
-function formatAge(hours: number | null) {
-  if (hours === null) return "غير متاح";
-  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} د`;
-  if (hours < 48) return `${hours.toFixed(hours < 10 ? 1 : 0)} س`;
-  return `${(hours / 24).toFixed(1)} ي`;
-}
-
-function RiskBadge({ score }: { score: number }) {
-  const tone = score >= 60 ? "danger" : score >= 30 ? "warn" : "safe";
-  const label = score >= 60 ? "مرتفع" : score >= 30 ? "متوسط" : "أدنى";
-  return <span className={`risk-badge ${tone}`}><span className="risk-dot" />{label} {Math.round(score)}</span>;
-}
+function formatAge(hours: number | null) { if (hours === null) return "غير متاح"; if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} د`; if (hours < 48) return `${hours.toFixed(hours < 10 ? 1 : 0)} س`; return `${(hours / 24).toFixed(1)} ي`; }
+function formatTime(value?: number | Date | string) { return value ? new Date(value).toLocaleString("ar", { dateStyle: "medium", timeStyle: "short" }) : "—"; }
+function RiskBadge({ score }: { score: number }) { const tone = score >= 60 ? "danger" : score >= 30 ? "warn" : "safe"; const label = score >= 60 ? "مرتفع" : score >= 30 ? "متوسط" : "أدنى"; return <span className={`risk-badge ${tone}`}><span className="risk-dot" />{label} {Math.round(score)}</span>; }
+function DecisionBadge({ candidate }: { candidate: Candidate }) { const status = candidate.security?.status; const copy = candidate.decision === "avoid" ? "إشارات خطر" : status === "passed" && candidate.decision === "monitor" ? "بيانات متوازنة" : "مراجعة مطلوبة"; const tone = candidate.decision === "avoid" ? "decision-danger" : candidate.decision === "monitor" && status === "passed" ? "decision-safe" : "decision-warn"; return <span className={`decision-badge ${tone}`}>{copy}</span>; }
 
 export default function Home() {
   const utils = trpc.useUtils();
   const dashboardQuery = trpc.scanner.dashboard.useQuery();
   const savedFiltersQuery = trpc.scanner.filters.get.useQuery();
+  const settingsQuery = trpc.scanner.settings.get.useQuery();
+  const healthQuery = trpc.scanner.health.useQuery();
+  const watchlistQuery = trpc.scanner.watchlist.list.useQuery();
+  const alertsQuery = trpc.scanner.alerts.useQuery();
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [liveScan, setLiveScan] = useState<ScanView | null>(null);
   const [selected, setSelected] = useState<Candidate | null>(null);
 
-  useEffect(() => {
-    if (savedFiltersQuery.data?.filters) setFilters(savedFiltersQuery.data.filters);
-  }, [savedFiltersQuery.data]);
+  useEffect(() => { if (savedFiltersQuery.data?.filters) setFilters(savedFiltersQuery.data.filters); }, [savedFiltersQuery.data]);
+  useEffect(() => { if (settingsQuery.data?.settings) setSettings(settingsQuery.data.settings); }, [settingsQuery.data]);
 
-  const refresh = trpc.scanner.refresh.useMutation({
-    onSuccess: (data) => {
-      setLiveScan(data);
-      void utils.scanner.dashboard.invalidate();
-      toast.success(`اكتمل الفحص: ${data.candidates.length} نتيجة ظاهرة`);
-    },
-    onError: (error) => toast.error(error.message || "تعذر تحديث البيانات"),
-  });
-  const saveFilters = trpc.scanner.filters.save.useMutation({ onSuccess: () => toast.success("تم حفظ إعدادات المرشحات") });
+  const refresh = trpc.scanner.refresh.useMutation({ onSuccess: (data) => { setLiveScan(data); void Promise.all([utils.scanner.dashboard.invalidate(), utils.scanner.health.invalidate(), utils.scanner.alerts.invalidate()]); toast.success(`اكتمل الفحص: ${data.candidates.length} نتيجة مطابقة للمرشحات`); }, onError: (error) => toast.error(error.message || "تعذر تحديث البيانات") });
+  const saveFilters = trpc.scanner.filters.save.useMutation({ onSuccess: () => toast.success("تم حفظ مرشحات العرض") });
+  const saveSettings = trpc.scanner.settings.save.useMutation({ onSuccess: () => { void utils.scanner.settings.invalidate(); toast.success("تم حفظ سياسة الأمان والعتبات"); } });
+  const addWatch = trpc.scanner.watchlist.add.useMutation({ onSuccess: () => { void utils.scanner.watchlist.invalidate(); toast.success("أضيف التوكن إلى قائمة المتابعة"); } });
+  const removeWatch = trpc.scanner.watchlist.remove.useMutation({ onSuccess: () => { void utils.scanner.watchlist.invalidate(); toast.success("أزيل من قائمة المتابعة"); } });
 
-  const scan: ScanView | null = liveScan ?? (dashboardQuery.data ? {
-    ...dashboardQuery.data,
-    candidates: dashboardQuery.data.candidates as Candidate[],
-  } : null);
-  const candidates = (scan?.candidates ?? []) as Candidate[];
-  const metrics = useMemo(() => ({
-    visible: candidates.length,
-    highRisk: candidates.filter((candidate) => candidate.riskScore >= 60).length,
-    avgOpportunity: candidates.length ? candidates.reduce((sum, candidate) => sum + candidate.opportunityScore, 0) / candidates.length : 0,
-    latestAge: candidates.length ? Math.min(...candidates.map((candidate) => candidate.ageHours ?? 999)) : null,
-  }), [candidates]);
-  const updating = refresh.isPending;
-
+  const scan: ScanView | null = liveScan ?? (dashboardQuery.data ? { ...dashboardQuery.data, candidates: dashboardQuery.data.candidates as Candidate[] } : null);
+  const candidates = scan?.candidates ?? [];
+  const watchedAddresses = new Set((watchlistQuery.data ?? []).map((item) => item.baseAddress));
+  const metrics = useMemo(() => ({ visible: candidates.length, securityPassed: candidates.filter((candidate) => candidate.security?.status === "passed").length, avgOpportunity: candidates.length ? candidates.reduce((sum, candidate) => sum + candidate.opportunityScore, 0) / candidates.length : 0, highRisk: candidates.filter((candidate) => candidate.riskScore >= 60).length }), [candidates]);
+  const topNow = candidates.filter((candidate) => candidate.decision !== "avoid" && candidate.security?.status === "passed").slice(0, 5);
+  const healthEvents = healthQuery.data?.events ?? [];
+  const latestHealth = healthEvents[0];
+  const sourceStatus = latestHealth?.eventType === "throttled" ? "مقيّد" : latestHealth?.eventType === "slow" ? "متباطئ" : latestHealth?.eventType === "error" ? "تعذر آخر طلب" : "طبيعي";
+  const lastFetched = scan?.fetchedAt ? formatTime(scan.fetchedAt) : "لم يتم الجلب بعد";
   const setNumber = (key: keyof Filters, value: string) => setFilters((current) => ({ ...current, [key]: Math.max(0, Number(value) || 0) }));
-  const lastFetched = scan?.fetchedAt ? new Date(scan.fetchedAt).toLocaleString("ar", { dateStyle: "medium", timeStyle: "short" }) : "لم يتم الجلب بعد";
+  const setSetting = <K extends keyof Settings>(key: K, value: Settings[K]) => setSettings((current) => ({ ...current, [key]: value }));
 
-  return (
-    <div dir="rtl" className="scanner-shell">
-      <div className="grid-noise" aria-hidden="true" />
-      <header className="scanner-header">
-        <div className="brand-block">
-          <div className="brand-mark"><Radar size={22} /></div>
-          <div>
-            <p className="eyebrow">SOLANA // SIGNAL INTELLIGENCE</p>
-            <h1>ماسح <span>الإشارات</span></h1>
-          </div>
-        </div>
-        <div className="header-actions">
-          <div className="source-state"><span className="pulse-dot" />مصدر عام · DEX Screener</div>
-          <Button className="scan-button" onClick={() => refresh.mutate(filters)} disabled={updating}>
-            {updating ? <Loader2 className="animate-spin" /> : <RefreshCw />} {updating ? "جارٍ الفحص…" : "تحديث يدوي"}
-          </Button>
-        </div>
-      </header>
-
-      <main className="scanner-main">
-        <section className="alert-banner hud-panel" aria-label="تنبيه مخاطر">
-          <ShieldAlert size={24} />
-          <div><strong>تنبيه عالي المخاطر</strong><p>هذه النتائج تحليل آلي للبيانات العامة وليست توصية شراء أو ضمان ربح. لا توجد محافظ، أو أوامر تداول، أو تنفيذ معاملات في هذا التطبيق.</p></div>
-          <span className="alert-code">NO-TRADE // READ-ONLY</span>
-        </section>
-
-        <section className="status-grid" aria-label="مؤشرات الفحص">
-          <StatusCard icon={<Eye />} label="نتائج ظاهرة" value={number.format(metrics.visible)} note="بعد المرشحات" accent="cyan" />
-          <StatusCard icon={<Sparkles />} label="متوسط الفرصة" value={metrics.avgOpportunity ? metrics.avgOpportunity.toFixed(1) : "—"} note="من 100" accent="pink" />
-          <StatusCard icon={<AlertTriangle />} label="مخاطر مرتفعة" value={number.format(metrics.highRisk)} note="درجة ≥ 60" accent="orange" />
-          <StatusCard icon={<Activity />} label="أحدث زوج" value={formatAge(metrics.latestAge)} note="عمر تقريبي" accent="purple" />
-        </section>
-
-        <section className="workspace">
-          <aside className="filter-panel hud-panel">
-            <div className="panel-title"><Filter size={17} /><span>مرشحات الإشارة</span><span className="panel-id">F-01</span></div>
-            <p className="panel-copy">تُطبّق المرشحات على نتائج كل فحص، ويمكن حفظ آخر إعداد للاستخدام اللاحق.</p>
-            <FilterField label="أدنى سيولة بالدولار" value={filters.minLiquidity} min={0} step={1000} onChange={(value) => setNumber("minLiquidity", value)} />
-            <FilterField label="أدنى حجم خلال ساعة" value={filters.minVolume} min={0} step={500} onChange={(value) => setNumber("minVolume", value)} />
-            <FilterField label="أقصى عمر بالساعات" value={filters.maxAgeHours} min={1} max={720} step={1} onChange={(value) => setNumber("maxAgeHours", value)} />
-            <FilterField label="أقصى درجة مخاطرة" value={filters.maxRisk} min={0} max={100} step={1} onChange={(value) => setNumber("maxRisk", value)} />
-            <Button variant="outline" className="save-filter" onClick={() => saveFilters.mutate(filters)} disabled={saveFilters.isPending}><Save />حفظ الإعدادات</Button>
-            <div className="filter-foot"><Database size={14} />{scan?.persistenceAvailable ? "تُحفظ اللقطات والإعدادات في قاعدة البيانات" : "ستُستخدم النتائج الحية؛ التخزين غير متاح حالياً"}</div>
-          </aside>
-
-          <section className="results-panel hud-panel">
-            <div className="results-header">
-              <div><p className="eyebrow">LIVE SCAN / MANUAL REFRESH</p><h2>أحدث الأزواج <span>المكتشفة</span></h2></div>
-              <div className="fetch-state"><span>آخر جلب</span><strong>{lastFetched}</strong><small>{scan?.totalCandidates ? `${scan.totalCandidates} مرشح من المصدر` : "اضغط تحديث لبدء الفحص"}</small></div>
-            </div>
-            {dashboardQuery.isLoading && !liveScan ? <div className="empty-state"><Loader2 className="animate-spin" />جارٍ استعادة آخر لقطة…</div> : candidates.length === 0 ? <EmptyState loading={updating} onScan={() => refresh.mutate(filters)} /> : (
-              <div className="table-wrap">
-                <table>
-                  <thead><tr><th>التوكن / DEX</th><th>السيولة</th><th>حجم 1س</th><th>العمر</th><th>السعر 1س</th><th>الفرصة</th><th>المخاطرة</th><th aria-label="تفاصيل" /></tr></thead>
-                  <tbody>{candidates.map((candidate) => <tr key={`${candidate.pairAddress}-${candidate.baseAddress}`}>
-                    <td><div className="token-cell"><span className="token-orb">{candidate.symbol.slice(0, 1)}</span><div><strong>{candidate.symbol}</strong><small>{candidate.name} · {candidate.dexId}</small></div></div></td>
-                    <td className="ltr">{currency.format(candidate.liquidityUsd)}</td><td className="ltr">{currency.format(candidate.volumeH1)}</td><td>{formatAge(candidate.ageHours)}</td>
-                    <td className={`ltr change ${candidate.priceChangeH1 > 0 ? "up" : candidate.priceChangeH1 < 0 ? "down" : ""}`}>{candidate.priceChangeH1 > 0 ? "+" : ""}{candidate.priceChangeH1.toFixed(1)}%</td>
-                    <td><div className="score-cell"><strong>{candidate.opportunityScore.toFixed(1)}</strong><div className="score-track"><i style={{ width: `${candidate.opportunityScore}%` }} /></div>{candidate.scoreDelta !== 0 && <small className={candidate.scoreDelta > 0 ? "up" : "down"}>{candidate.scoreDelta > 0 ? "+" : ""}{candidate.scoreDelta.toFixed(1)}</small>}</div></td>
-                    <td><RiskBadge score={candidate.riskScore} /></td><td><button className="icon-action" onClick={() => setSelected(candidate)} aria-label={`تفاصيل ${candidate.symbol}`}><ArrowUpRight size={17} /></button></td>
-                  </tr>)}</tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        </section>
-      </main>
-
-      <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}>
-        <DialogContent className="token-dialog" dir="rtl">
-          {selected && <><DialogHeader><p className="eyebrow">PAIR INTELLIGENCE // READ ONLY</p><DialogTitle>{selected.symbol} <span>{selected.name}</span></DialogTitle><DialogDescription>تفصيل الإشارات المتاحة من آخر لقطة محفوظة.</DialogDescription></DialogHeader>
-            <div className="detail-scores"><div><span>الفرصة</span><strong>{selected.opportunityScore.toFixed(1)}</strong><small>من 100</small></div><div><span>المخاطرة</span><strong>{selected.riskScore.toFixed(1)}</strong><RiskBadge score={selected.riskScore} /></div><div><span>المعاملات / 1س</span><strong>{number.format(selected.transactionsH1)}</strong><small>إشارة نشاط</small></div></div>
-            <div className="detail-grid"><DetailMetric label="السيولة" value={currency.format(selected.liquidityUsd)} /><DetailMetric label="حجم 24س" value={currency.format(selected.volumeH24)} /><DetailMetric label="عمر الزوج" value={formatAge(selected.ageHours)} /><DetailMetric label="تغير 5د" value={`${selected.priceChangeM5 > 0 ? "+" : ""}${selected.priceChangeM5.toFixed(1)}%`} /></div>
-            <div className="signal-columns"><div><h3><Zap size={16} /> عوامل رفعت التقييم</h3>{selected.factors.length ? selected.factors.map((factor) => <p key={factor}>{factor}</p>) : <p>لا تتوفر عوامل إيجابية كافية.</p>}</div><div className="warnings"><h3><AlertTriangle size={16} /> علامات تحذير</h3>{selected.warnings.length ? selected.warnings.map((warning) => <p key={warning}>{warning}</p>) : <p>لا توجد تحذيرات آلية إضافية في هذه اللقطة.</p>}</div></div>
-            <a className="source-link" href={selected.sourceUrl} target="_blank" rel="noreferrer">فتح مصدر الزوج على DEX Screener <ArrowUpRight size={16} /></a>
-          </>}
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
+  return <div dir="rtl" className="scanner-shell">
+    <div className="grid-noise" aria-hidden="true" />
+    <header className="scanner-header"><div className="brand-block"><div className="brand-mark"><Radar size={22} /></div><div><p className="eyebrow">SOLANA // SIGNAL INTELLIGENCE</p><h1>ماسح <span>الإشارات</span></h1></div></div><div className="header-actions"><a className="back-link" href="/performance"><Gauge size={16} />دقة الإشارات</a><div className="source-state"><span className="pulse-dot" />{sourceStatus} · DEX Screener + RugCheck</div><Button className="scan-button" onClick={() => refresh.mutate(filters)} disabled={refresh.isPending}>{refresh.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}{refresh.isPending ? "جارٍ الفحص…" : "تحديث يدوي"}</Button></div></header>
+    <main className="scanner-main">
+      <section className="alert-banner hud-panel"><ShieldAlert size={24} /><div><strong>تحليل بيانات عالي المخاطر</strong><p>لا تمثل النتيجة شراءً أو بيعاً أو ضمان عائد. تستخدم اللوحة إشارات سوق وأمان عامة فقط، ولا تتصل بمحافظ أو تنفذ معاملات.</p></div><span className="alert-code">NO-TRADE // READ-ONLY</span></section>
+      <section className="status-grid"><StatusCard icon={<Eye />} label="نتائج ظاهرة" value={number.format(metrics.visible)} note="بعد المرشحات والسياسة" accent="cyan" /><StatusCard icon={<ShieldCheck />} label="أمان متاح" value={number.format(metrics.securityPassed)} note="تقارير RugCheck المارة" accent="pink" /><StatusCard icon={<Sparkles />} label="متوسط الفرصة" value={metrics.avgOpportunity ? metrics.avgOpportunity.toFixed(1) : "—"} note="من 100" accent="purple" /><StatusCard icon={<AlertTriangle />} label="مخاطر مرتفعة" value={number.format(metrics.highRisk)} note="درجة ≥ 60" accent="orange" /></section>
+      <section className="top-now hud-panel"><div className="panel-title"><Sparkles size={17} /><span>الأفضل الآن</span><span className="panel-id">TOP-05</span></div><p className="panel-copy">مرشحون اجتازوا بيانات الأمان المتاحة ومرشحات العرض الحالية، مرتبين حسب الدرجة. هذه ليست توصية أو تنفيذ تداول.</p>{topNow.length ? <div className="top-now-grid">{topNow.map((candidate) => <button className="top-token" key={candidate.baseAddress} onClick={() => setSelected(candidate)}><span className="token-orb">{candidate.symbol.slice(0, 1)}</span><span><strong>{candidate.symbol}</strong><small>{candidate.opportunityScore.toFixed(1)} فرصة · {Math.round(candidate.riskScore)} مخاطرة</small></span><DecisionBadge candidate={candidate} /></button>)}</div> : <div className="mini-empty">ستظهر القائمة بعد اكتمال فحص يحوي تقارير أمان متاحة.</div>}</section>
+      <section className="workspace"><aside className="filter-panel hud-panel"><div className="panel-title"><Filter size={17} /><span>مرشحات الإشارة</span><span className="panel-id">F-01</span></div><p className="panel-copy">تؤثر المرشحات على العرض، بينما سياسة الأمان تحدد ما إذا كانت الإشارات الخطرة تستبعد افتراضياً.</p><FilterField label="أدنى سيولة بالدولار" value={filters.minLiquidity} min={0} step={1000} onChange={(value) => setNumber("minLiquidity", value)} /><FilterField label="أدنى حجم خلال ساعة" value={filters.minVolume} min={0} step={500} onChange={(value) => setNumber("minVolume", value)} /><FilterField label="أقصى عمر بالساعات" value={filters.maxAgeHours} min={1} max={720} step={1} onChange={(value) => setNumber("maxAgeHours", value)} /><FilterField label="أقصى درجة مخاطرة" value={filters.maxRisk} min={0} max={100} step={1} onChange={(value) => setNumber("maxRisk", value)} /><Button variant="outline" className="save-filter" onClick={() => saveFilters.mutate(filters)} disabled={saveFilters.isPending}><Save />حفظ المرشحات</Button><div className="filter-foot"><Database size={14} />{scan?.persistenceAvailable ? "تُحفظ اللقطات والإعدادات في قاعدة البيانات" : "ستعمل النتائج الحية لكن التخزين غير متاح"}</div></aside>
+        <section className="results-panel hud-panel"><div className="results-header"><div><p className="eyebrow">LIVE SCAN / SECURITY-ENRICHED</p><h2>سجل الأزواج <span>المكتشفة</span></h2></div><div className="fetch-state"><span>آخر جلب</span><strong>{lastFetched}</strong><small>{scan?.totalCandidates ? `${scan.totalCandidates} مرشح قبل الاستبعاد` : "اضغط تحديث لبدء الفحص"}</small></div></div>{dashboardQuery.isLoading && !liveScan ? <div className="empty-state"><Loader2 className="animate-spin" />جارٍ استعادة آخر لقطة…</div> : !candidates.length ? <EmptyState loading={refresh.isPending} onScan={() => refresh.mutate(filters)} /> : <div className="table-wrap"><table><thead><tr><th>التوكن / DEX</th><th>حالة البيانات</th><th>السيولة</th><th>حجم 1س</th><th>العمر</th><th>الزخم</th><th>الفرصة</th><th>المخاطرة</th><th>متابعة</th><th /></tr></thead><tbody>{candidates.map((candidate) => <tr key={`${candidate.pairAddress}-${candidate.baseAddress}`}><td><div className="token-cell"><span className="token-orb">{candidate.symbol.slice(0, 1)}</span><div><strong>{candidate.symbol}</strong><small>{candidate.name} · {candidate.dexId}</small></div></div></td><td><DecisionBadge candidate={candidate} /></td><td className="ltr">{currency.format(candidate.liquidityUsd)}</td><td className="ltr">{currency.format(candidate.volumeH1)}</td><td>{formatAge(candidate.ageHours)}</td><td className={`ltr change ${candidate.priceChangeH1 > 0 ? "up" : candidate.priceChangeH1 < 0 ? "down" : ""}`}>{candidate.priceChangeH1 > 0 ? "+" : ""}{candidate.priceChangeH1.toFixed(1)}%</td><td><div className="score-cell"><strong>{candidate.opportunityScore.toFixed(1)}</strong><div className="score-track"><i style={{ width: `${candidate.opportunityScore}%` }} /></div></div></td><td><RiskBadge score={candidate.riskScore} /></td><td><button className="icon-action" onClick={() => watchedAddresses.has(candidate.baseAddress) ? removeWatch.mutate({ baseAddress: candidate.baseAddress }) : addWatch.mutate(candidate)} aria-label="قائمة المتابعة">{watchedAddresses.has(candidate.baseAddress) ? <BookmarkCheck size={17} /> : <Bookmark size={17} />}</button></td><td><button className="icon-action" onClick={() => setSelected(candidate)} aria-label={`تفاصيل ${candidate.symbol}`}><ArrowUpRight size={17} /></button></td></tr>)}</tbody></table></div>}</section></section>
+      <section className="lower-grid"><section className="hud-panel lower-panel"><div className="panel-title"><Gauge size={17} /><span>صحة المصدر</span><span className="panel-id">API-01</span></div><div className="health-status"><span className={`health-light ${latestHealth?.eventType ?? "normal"}`} /><div><strong>{sourceStatus}</strong><small>آخر قياس: {latestHealth ? formatTime(latestHealth.occurredAt) : "لا توجد بيانات بعد"}</small></div></div><div className="health-list">{healthEvents.slice(0, 4).map((event) => <div key={event.id}><span>{event.source}</span><small>{event.eventType} · {event.latencyMs ?? "—"}ms · {formatTime(event.occurredAt)}</small></div>)}{!healthEvents.length && <p>سيظهر سجل استجابة المصدر بعد أول تحديث.</p>}</div></section>
+        <section className="hud-panel lower-panel"><div className="panel-title"><Settings2 size={17} /><span>سياسة الأمان</span><span className="panel-id">S-01</span></div><label className="toggle-row"><input type="checkbox" checked={settings.strictSecurity} onChange={(event) => setSetting("strictSecurity", event.target.checked)} /><span>استبعاد إشارات صلاحية السك أو السيولة غير المقفلة عند توافرها</span></label><FilterField label="حد فرصة التنبيه الداخلي" value={settings.opportunityAlertThreshold} min={0} max={100} step={1} onChange={(value) => setSetting("opportunityAlertThreshold", Math.min(100, Number(value) || 0))} /><FilterField label="حد مخاطرة التنبيه الداخلي" value={settings.riskAlertThreshold} min={0} max={100} step={1} onChange={(value) => setSetting("riskAlertThreshold", Math.min(100, Number(value) || 0))} /><Button variant="outline" className="save-filter" onClick={() => saveSettings.mutate(settings)} disabled={saveSettings.isPending}><Save />حفظ السياسة</Button></section>
+        <section className="hud-panel lower-panel"><div className="panel-title"><Bookmark size={17} /><span>قائمة المتابعة</span><span className="panel-id">W-01</span></div><div className="watch-list">{(watchlistQuery.data ?? []).slice(0, 5).map((item) => <div key={item.baseAddress}><span><strong>{item.symbol}</strong><small>{item.name}</small></span><button className="icon-action" onClick={() => removeWatch.mutate({ baseAddress: item.baseAddress })}><BookmarkCheck size={16} /></button></div>)}{!(watchlistQuery.data ?? []).length && <p>لا توجد عناصر محفوظة بعد.</p>}</div></section>
+        <section className="hud-panel lower-panel"><div className="panel-title"><BellRing size={17} /><span>تنبيهات داخل اللوحة</span><span className="panel-id">A-01</span></div><div className="watch-list">{(alertsQuery.data?.events ?? []).slice(0, 5).map((event) => <div key={event.id}><span><strong>{event.symbol}</strong><small>فرصة {event.opportunityScore.toFixed(1)} · مخاطرة {event.riskScore.toFixed(1)}</small></span><small>{formatTime(event.createdAt)}</small></div>)}{!(alertsQuery.data?.events ?? []).length && <p>لا توجد إشارات تجاوزت عتباتك بعد.</p>}</div></section></section>
+    </main>
+    <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}><DialogContent className="token-dialog" dir="rtl">{selected && <><DialogHeader><p className="eyebrow">PAIR INTELLIGENCE // READ ONLY</p><DialogTitle>{selected.symbol} <span>{selected.name}</span></DialogTitle><DialogDescription>تفصيل البيانات العامة وإشارات الأمان من آخر لقطة.</DialogDescription></DialogHeader><div className="detail-scores"><div><span>الفرصة</span><strong>{selected.opportunityScore.toFixed(1)}</strong><small>من 100</small></div><div><span>المخاطرة</span><strong>{selected.riskScore.toFixed(1)}</strong><RiskBadge score={selected.riskScore} /></div><div><span>حالة البيانات</span><strong className="security-icon">{selected.security?.status === "passed" ? <ShieldCheck /> : selected.security?.status === "flagged" ? <ShieldX /> : <ShieldQuestion />}</strong><DecisionBadge candidate={selected} /></div></div><div className="detail-grid"><DetailMetric label="السيولة" value={currency.format(selected.liquidityUsd)} /><DetailMetric label="انزلاق تقريبي / 200$" value={selected.estimatedSlippage200 === null || selected.estimatedSlippage200 === undefined ? "—" : `${selected.estimatedSlippage200.toFixed(2)}%`} /><DetailMetric label="انزلاق تقريبي / 500$" value={selected.estimatedSlippage500 === null || selected.estimatedSlippage500 === undefined ? "—" : `${selected.estimatedSlippage500.toFixed(2)}%`} /><DetailMetric label="زخم متعدد الأطر" value={selected.momentumConsistency === "positive" ? "إيجابي" : selected.momentumConsistency === "negative" ? "سلبي" : selected.momentumConsistency === "mixed" ? "مختلط" : "غير متاح"} /></div><div className="security-summary"><strong>فحص الأمان</strong><span>صلاحية سك: {selected.security?.mintAuthorityOpen ? "مفتوحة" : "غير مرصودة"}</span><span>LP: {selected.security?.lpLockStatus === "locked" ? "مقفلة" : selected.security?.lpLockStatus === "unlocked" ? "غير مقفلة" : "غير متاح"}</span><span>أكبر حائز: {selected.security?.holderTopPct === null || selected.security?.holderTopPct === undefined ? "لم يفحص" : `${selected.security.holderTopPct.toFixed(1)}%`}</span></div><div className="signal-columns"><div><h3><Zap size={16} /> عوامل رفعت التقييم</h3>{selected.factors.length ? selected.factors.map((factor) => <p key={factor}>{factor}</p>) : <p>لا تتوفر عوامل إيجابية كافية.</p>}</div><div className="warnings"><h3><AlertTriangle size={16} /> علامات التحذير</h3>{selected.warnings.length ? selected.warnings.map((warning) => <p key={warning}>{warning}</p>) : <p>لا توجد تحذيرات آلية إضافية في هذه اللقطة.</p>}</div></div><a className="source-link" href={selected.sourceUrl} target="_blank" rel="noreferrer">فتح مصدر الزوج على DEX Screener <ArrowUpRight size={16} /></a></>}</DialogContent></Dialog>
+  </div>;
 }
 
-function StatusCard({ icon, label, value, note, accent }: { icon: React.ReactNode; label: string; value: string; note: string; accent: string }) {
-  return <article className={`status-card ${accent} hud-panel`}><div className="status-icon">{icon}</div><div><p>{label}</p><strong>{value}</strong><small>{note}</small></div></article>;
-}
-
-function FilterField({ label, value, min, max, step, onChange }: { label: string; value: number; min: number; max?: number; step: number; onChange: (value: string) => void }) {
-  return <label className="filter-field"><span>{label}</span><div><Input type="number" min={min} max={max} step={step} value={value} onChange={(event) => onChange(event.target.value)} /><em>{label.includes("دولار") || label.includes("حجم") ? "$" : label.includes("مخاطرة") ? "/100" : "ساعة"}</em></div></label>;
-}
-
-function EmptyState({ loading, onScan }: { loading: boolean; onScan: () => void }) {
-  return <div className="empty-state"><Radar size={34} /><h3>{loading ? "يتم مسح المصدر العام…" : "لا توجد لقطة مطابقة بعد"}</h3><p>{loading ? "نحلل أحدث ملفات توكنات سولانا والأزواج المرتبطة بها." : "ابدأ فحصاً يدوياً. لن تظهر أي بيانات تجريبية أو توصيات تداول داخل هذه اللوحة."}</p>{!loading && <Button className="scan-button" onClick={onScan}><RefreshCw />ابدأ الفحص</Button>}</div>;
-}
-
+function StatusCard({ icon, label, value, note, accent }: { icon: React.ReactNode; label: string; value: string; note: string; accent: string }) { return <article className={`status-card ${accent} hud-panel`}><div className="status-icon">{icon}</div><div><p>{label}</p><strong>{value}</strong><small>{note}</small></div></article>; }
+function FilterField({ label, value, min, max, step, onChange }: { label: string; value: number; min: number; max?: number; step: number; onChange: (value: string) => void }) { return <label className="filter-field"><span>{label}</span><div><Input type="number" min={min} max={max} step={step} value={value} onChange={(event) => onChange(event.target.value)} /><em>{label.includes("فرصة") || label.includes("مخاطرة") ? "/100" : label.includes("عمر") ? "ساعة" : "$"}</em></div></label>; }
+function EmptyState({ loading, onScan }: { loading: boolean; onScan: () => void }) { return <div className="empty-state"><Radar size={34} /><h3>{loading ? "يتم مسح المصدر العام…" : "لا توجد لقطة مطابقة بعد"}</h3><p>{loading ? "نحلل أحدث ملفات توكنات سولانا ونلحق بها تقارير الأمان المتاحة." : "ابدأ فحصاً يدوياً. لا تعرض هذه اللوحة بيانات تجريبية أو تنفيذ تداول."}</p>{!loading && <Button className="scan-button" onClick={onScan}><RefreshCw />ابدأ الفحص</Button>}</div>; }
 function DetailMetric({ label, value }: { label: string; value: string }) { return <div><span>{label}</span><strong className="ltr">{value}</strong></div>; }

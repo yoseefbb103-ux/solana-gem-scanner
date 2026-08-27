@@ -1,14 +1,28 @@
-import { scoreCandidate } from "./scoring";
-import type { DexScreenerPair, ScoredCandidate, TokenCandidate } from "./types";
+import type { DexScreenerPair, MarketFetchResult, SourceTelemetry, TokenCandidate } from "./types";
 
 type TokenProfile = { chainId?: string; tokenAddress?: string; url?: string };
 
 const API_BASE = "https://api.dexscreener.com";
 
-async function dexFetch<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, { signal: AbortSignal.timeout(10_000) });
-  if (!response.ok) throw new Error(`تعذر جلب بيانات المصدر (${response.status})`);
-  return response.json() as Promise<T>;
+async function dexFetch<T>(path: string, telemetry: SourceTelemetry): Promise<T> {
+  const startedAt = Date.now();
+  try {
+    const response = await fetch(`${API_BASE}${path}`, { signal: AbortSignal.timeout(10_000) });
+    const latency = Date.now() - startedAt;
+    telemetry.requestCount += 1;
+    telemetry.latestStatus = response.status;
+    telemetry.maxLatencyMs = Math.max(telemetry.maxLatencyMs, latency);
+    if (response.status === 429) telemetry.throttled = true;
+    if (latency >= 4_000) telemetry.slowRequestCount += 1;
+    if (!response.ok) {
+      telemetry.errorCount += 1;
+      throw new Error(`تعذر جلب بيانات المصدر (${response.status})`);
+    }
+    return response.json() as Promise<T>;
+  } catch (error) {
+    telemetry.errorCount += 1;
+    throw error;
+  }
 }
 
 function toCandidate(pair: DexScreenerPair, fallbackUrl?: string): TokenCandidate | null {
@@ -35,12 +49,15 @@ function toCandidate(pair: DexScreenerPair, fallbackUrl?: string): TokenCandidat
     sellsH1,
     priceChangeM5: Number(pair.priceChange?.m5 ?? 0),
     priceChangeH1: Number(pair.priceChange?.h1 ?? 0),
+    priceChangeH6: Number(pair.priceChange?.h6 ?? 0),
+    priceChangeH24: Number(pair.priceChange?.h24 ?? 0),
     pairCreatedAt: typeof pair.pairCreatedAt === "number" ? pair.pairCreatedAt : null,
   };
 }
 
-export async function fetchLatestSolanaCandidates(previousScores: Map<string, number>) {
-  const profiles = await dexFetch<TokenProfile[]>("/token-profiles/latest/v1");
+export async function fetchLatestSolanaMarket(): Promise<MarketFetchResult> {
+  const telemetry: SourceTelemetry = { source: "DEX Screener", requestCount: 0, throttled: false, slowRequestCount: 0, errorCount: 0, latestStatus: null, maxLatencyMs: 0, capturedAt: Date.now() };
+  const profiles = await dexFetch<TokenProfile[]>("/token-profiles/latest/v1", telemetry);
   const solanaProfiles = profiles
     .filter((profile) => profile.chainId === "solana" && profile.tokenAddress)
     .filter((profile, index, all) => all.findIndex((item) => item.tokenAddress === profile.tokenAddress) === index)
@@ -48,14 +65,14 @@ export async function fetchLatestSolanaCandidates(previousScores: Map<string, nu
 
   const pairGroups = await Promise.all(solanaProfiles.map(async (profile) => {
     try {
-      const pairs = await dexFetch<DexScreenerPair[]>(`/token-pairs/v1/solana/${profile.tokenAddress}`);
+      const pairs = await dexFetch<DexScreenerPair[]>(`/token-pairs/v1/solana/${profile.tokenAddress}`, telemetry);
       return { profile, pairs };
     } catch {
       return { profile, pairs: [] as DexScreenerPair[] };
     }
   }));
 
-  const byAddress = new Map<string, ScoredCandidate>();
+  const byAddress = new Map<string, TokenCandidate>();
   for (const { profile, pairs } of pairGroups) {
     const bestPair = pairs
       .filter((pair) => pair.chainId === "solana" && pair.pairAddress)
@@ -63,10 +80,21 @@ export async function fetchLatestSolanaCandidates(previousScores: Map<string, nu
     if (!bestPair) continue;
     const candidate = toCandidate(bestPair, profile.url);
     if (!candidate) continue;
-    const scored = scoreCandidate(candidate, previousScores.get(candidate.baseAddress));
     const existing = byAddress.get(candidate.baseAddress);
-    if (!existing || scored.liquidityUsd > existing.liquidityUsd) byAddress.set(candidate.baseAddress, scored);
+    if (!existing || candidate.liquidityUsd > existing.liquidityUsd) byAddress.set(candidate.baseAddress, candidate);
   }
 
-  return Array.from(byAddress.values()).sort((left, right) => right.opportunityScore - left.opportunityScore);
+  return { candidates: Array.from(byAddress.values()).sort((left, right) => right.liquidityUsd - left.liquidityUsd), telemetry };
+}
+
+export async function fetchLatestSolanaCandidates() {
+  const result = await fetchLatestSolanaMarket();
+  return result.candidates;
+}
+
+export async function fetchTokenPriceUsd(baseAddress: string): Promise<number | null> {
+  const telemetry: SourceTelemetry = { source: "DEX Screener", requestCount: 0, throttled: false, slowRequestCount: 0, errorCount: 0, latestStatus: null, maxLatencyMs: 0, capturedAt: Date.now() };
+  const pairs = await dexFetch<DexScreenerPair[]>(`/token-pairs/v1/solana/${baseAddress}`, telemetry);
+  const best = pairs.filter((pair) => pair.chainId === "solana" && pair.priceUsd).sort((left, right) => Number(right.liquidity?.usd ?? 0) - Number(left.liquidity?.usd ?? 0))[0];
+  return best?.priceUsd ? Number(best.priceUsd) : null;
 }

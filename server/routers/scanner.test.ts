@@ -1,63 +1,49 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "../_core/context";
 
-const scannerDbMock = vi.hoisted(() => ({
-  getLatestDashboard: vi.fn(),
-  getPreviousScores: vi.fn(),
-  getSavedFilters: vi.fn(),
-  saveFilters: vi.fn(),
-  storeScan: vi.fn(),
+const dbMock = vi.hoisted(() => ({
+  addToWatchlist: vi.fn(), getLatestDashboard: vi.fn(), getPerformanceReport: vi.fn(), getRecentAlerts: vi.fn(), getSavedFilters: vi.fn(),
+  getScannerSettings: vi.fn(), getSourceHealthSummary: vi.fn(), listWatchlist: vi.fn(), removeFromWatchlist: vi.fn(), saveFilters: vi.fn(), saveScannerSettings: vi.fn(),
 }));
-const sourceMock = vi.hoisted(() => ({ fetchLatestSolanaCandidates: vi.fn() }));
+const scannerMock = vi.hoisted(() => ({ runScanner: vi.fn() }));
 
-vi.mock("../scannerDb", () => scannerDbMock);
-vi.mock("../scanner/source", () => sourceMock);
+vi.mock("../scannerDb", () => dbMock);
+vi.mock("../scanner/scanService", () => scannerMock);
 
 import { scannerRouter } from "./scanner";
 
 const context = { user: null, req: {}, res: {} } as TrpcContext;
-const candidate = {
-  pairAddress: "pair-1", baseAddress: "token-1", symbol: "TEST", name: "Test", dexId: "raydium", sourceUrl: "https://example.com",
-  priceUsd: 0.04, liquidityUsd: 80_000, volumeH1: 11_000, volumeH24: 65_000, transactionsH1: 80, buysH1: 45, sellsH1: 35,
-  priceChangeM5: 1.4, priceChangeH1: 8.5, pairCreatedAt: Date.now() - 4 * 3_600_000, ageHours: 4,
-  opportunityScore: 61.5, riskScore: 12, scoreDelta: 2.5, factors: ["سيولة قابلة للتداول نسبياً"], warnings: [],
-};
+const filters = { minLiquidity: 5_000, minVolume: 1_000, maxAgeHours: 72, maxRisk: 45 };
+const settings = { strictSecurity: true, opportunityAlertThreshold: 72, riskAlertThreshold: 28, cooldownMinutes: 120, deepScanLimit: 8 };
 
 describe("scannerRouter", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    scannerDbMock.getPreviousScores.mockResolvedValue(new Map());
-    scannerDbMock.storeScan.mockResolvedValue({ scanId: 7, persisted: true });
+  beforeEach(() => vi.clearAllMocks());
+
+  it("returns the stored dashboard snapshot", async () => {
+    const dashboard = { scanId: 4, source: "DEX Screener public API + RugCheck", fetchedAt: new Date(), totalCandidates: 1, filters, persistenceAvailable: true, candidates: [] };
+    dbMock.getLatestDashboard.mockResolvedValue(dashboard);
+    await expect(scannerRouter.createCaller(context).dashboard()).resolves.toEqual(dashboard);
   });
 
-  it("returns the latest stored dashboard snapshot", async () => {
-    const dashboard = { scanId: 4, source: "DEX Screener public API", fetchedAt: new Date(), totalCandidates: 1, filters: {}, persistenceAvailable: true, candidates: [candidate] };
-    scannerDbMock.getLatestDashboard.mockResolvedValue(dashboard);
-    const result = await scannerRouter.createCaller(context).dashboard();
-    expect(result).toEqual(dashboard);
+  it("runs an explicit manual refresh using normalized filters", async () => {
+    const response = { scanId: 9, candidates: [], filters, persistenceAvailable: true };
+    scannerMock.runScanner.mockResolvedValue(response);
+    await expect(scannerRouter.createCaller(context).refresh(filters)).resolves.toEqual(response);
+    expect(scannerMock.runScanner).toHaveBeenCalledWith({ origin: "manual", filters });
   });
 
-  it("saves and returns user-facing scanner filters", async () => {
-    const filters = { minLiquidity: 5_000, minVolume: 1_000, maxAgeHours: 72, maxRisk: 45 };
-    scannerDbMock.getSavedFilters.mockResolvedValue(filters);
+  it("saves settings and filters independently", async () => {
     const caller = scannerRouter.createCaller(context);
-    expect(await caller.filters.get()).toEqual({ filters });
     await expect(caller.filters.save(filters)).resolves.toEqual({ filters });
-    expect(scannerDbMock.saveFilters).toHaveBeenCalledWith(filters);
+    await expect(caller.settings.save(settings)).resolves.toEqual({ settings });
+    expect(dbMock.saveFilters).toHaveBeenCalledWith(filters);
+    expect(dbMock.saveScannerSettings).toHaveBeenCalledWith(settings);
   });
 
-  it("filters, persists, and returns a successful manual refresh", async () => {
-    sourceMock.fetchLatestSolanaCandidates.mockResolvedValue([candidate]);
-    const filters = { minLiquidity: 20_000, minVolume: 5_000, maxAgeHours: 48, maxRisk: 30 };
-    const result = await scannerRouter.createCaller(context).refresh(filters);
-    expect(sourceMock.fetchLatestSolanaCandidates).toHaveBeenCalledWith(expect.any(Map));
-    expect(scannerDbMock.storeScan).toHaveBeenCalledWith(expect.objectContaining({ status: "success", filters, candidates: [candidate] }));
-    expect(result).toMatchObject({ scanId: 7, persistenceAvailable: true, totalCandidates: 1, candidates: [candidate] });
-  });
-
-  it("records a failed scan and surfaces a source error", async () => {
-    sourceMock.fetchLatestSolanaCandidates.mockRejectedValue(new Error("المصدر غير متاح"));
-    await expect(scannerRouter.createCaller(context).refresh()).rejects.toThrow("المصدر غير متاح");
-    expect(scannerDbMock.storeScan).toHaveBeenCalledWith(expect.objectContaining({ status: "failed", errorMessage: "المصدر غير متاح", candidates: [] }));
+  it("persists a watchlist item without a wallet operation", async () => {
+    dbMock.addToWatchlist.mockResolvedValue(true);
+    const item = { baseAddress: "A".repeat(32), pairAddress: "B".repeat(32), symbol: "TEST", name: "Test token", sourceUrl: "https://dexscreener.com/solana/pair" };
+    await expect(scannerRouter.createCaller(context).watchlist.add(item)).resolves.toEqual({ saved: true });
+    expect(dbMock.addToWatchlist).toHaveBeenCalledWith(item);
   });
 });
