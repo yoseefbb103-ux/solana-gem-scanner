@@ -8,6 +8,9 @@ export type JupiterPrices = { prices: Map<string, number>; unavailableAddresses:
 const API_BASE = "https://api.dexscreener.com";
 const JUPITER_PRICE_URL = "https://api.jup.ag/price/v3";
 const MARKET_CACHE_TTL_MS = 45_000;
+const EARLY_DISCOVERY_CACHE_TTL_MS = 15_000;
+const EARLY_DISCOVERY_PROFILE_LIMIT = 12;
+const EARLY_DISCOVERY_MIN_LIQUIDITY_USD = 1_000;
 const DISCOVERY_PATHS = [
   { path: "/token-profiles/latest/v1", source: "ملفات حديثة" },
   { path: "/token-profiles/recent-updates/v1", source: "ملفات محدّثة" },
@@ -17,10 +20,14 @@ const DISCOVERY_PATHS = [
 
 let cachedMarket: { value: MarketFetchResult; expiresAt: number } | null = null;
 let pendingMarketFetch: Promise<MarketFetchResult> | null = null;
+let cachedEarlyDiscovery: { value: MarketFetchResult; expiresAt: number } | null = null;
+let pendingEarlyDiscovery: Promise<MarketFetchResult> | null = null;
 
 export function resetSourceCache() {
   cachedMarket = null;
   pendingMarketFetch = null;
+  cachedEarlyDiscovery = null;
+  pendingEarlyDiscovery = null;
 }
 
 async function dexFetch<T>(path: string, telemetry: SourceTelemetry): Promise<T> {
@@ -107,6 +114,43 @@ export async function fetchLatestSolanaMarket(): Promise<MarketFetchResult> {
     return market;
   } finally {
     pendingMarketFetch = null;
+  }
+}
+
+async function fetchEarlySolanaDiscoveryUncached(): Promise<MarketFetchResult> {
+  const telemetry: SourceTelemetry = { source: "DEX Screener Early Discovery", requestCount: 0, throttled: false, slowRequestCount: 0, errorCount: 0, latestStatus: null, maxLatencyMs: 0, capturedAt: Date.now() };
+  const profiles = await dexFetch<TokenProfile[]>("/token-profiles/latest/v1", telemetry);
+  const solanaProfiles = profiles
+    .filter((profile) => profile.chainId === "solana" && profile.tokenAddress)
+    .slice(0, EARLY_DISCOVERY_PROFILE_LIMIT)
+    .map((profile) => ({ ...profile, sources: new Set(["رصد مبكر: ملفات حديثة"]) }));
+  const pairGroups = await Promise.all(solanaProfiles.map(async (profile) => {
+    try { return { profile, pairs: await dexFetch<DexScreenerPair[]>(`/token-pairs/v1/solana/${profile.tokenAddress}`, telemetry) }; }
+    catch { return { profile, pairs: [] as DexScreenerPair[] }; }
+  }));
+  const candidates = new Map<string, TokenCandidate>();
+  for (const { profile, pairs } of pairGroups) {
+    const solanaPairs = pairs.filter((pair) => pair.chainId === "solana" && pair.pairAddress);
+    const bestPair = [...solanaPairs].sort((left, right) => Number(right.liquidity?.usd ?? 0) - Number(left.liquidity?.usd ?? 0))[0];
+    if (!bestPair) continue;
+    const candidate = toCandidate(bestPair, solanaPairs, profile);
+    if (!candidate || candidate.liquidityUsd < EARLY_DISCOVERY_MIN_LIQUIDITY_USD) continue;
+    const current = candidates.get(candidate.baseAddress);
+    if (!current || candidate.liquidityUsd > current.liquidityUsd) candidates.set(candidate.baseAddress, candidate);
+  }
+  return { candidates: Array.from(candidates.values()).sort((left, right) => (right.pairCreatedAt ?? 0) - (left.pairCreatedAt ?? 0)), telemetry };
+}
+
+export async function fetchEarlySolanaDiscovery(): Promise<MarketFetchResult> {
+  if (cachedEarlyDiscovery && cachedEarlyDiscovery.expiresAt > Date.now()) return cachedEarlyDiscovery.value;
+  if (pendingEarlyDiscovery) return pendingEarlyDiscovery;
+  pendingEarlyDiscovery = fetchEarlySolanaDiscoveryUncached();
+  try {
+    const result = await pendingEarlyDiscovery;
+    cachedEarlyDiscovery = { value: result, expiresAt: Date.now() + EARLY_DISCOVERY_CACHE_TTL_MS };
+    return result;
+  } finally {
+    pendingEarlyDiscovery = null;
   }
 }
 

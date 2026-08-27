@@ -3,7 +3,7 @@ import type { TrpcContext } from "../_core/context";
 
 const dbMock = vi.hoisted(() => ({
   addToWatchlist: vi.fn(), getLatestDashboard: vi.fn(), getPerformanceReport: vi.fn(), getRecentAlerts: vi.fn(), getSavedFilters: vi.fn(),
-  getScannerSettings: vi.fn(), getSourceHealthSummary: vi.fn(), listWatchlist: vi.fn(), removeFromWatchlist: vi.fn(), saveFilters: vi.fn(), saveScannerSettings: vi.fn(),
+  getScannerSettings: vi.fn(), getSourceHealthSummary: vi.fn(), listEarlyWatches: vi.fn(), listWatchlist: vi.fn(), removeFromWatchlist: vi.fn(), saveFilters: vi.fn(), saveScannerSettings: vi.fn(),
 }));
 const scannerMock = vi.hoisted(() => ({ runScanner: vi.fn() }));
 
@@ -45,5 +45,14 @@ describe("scannerRouter", () => {
     const item = { baseAddress: "A".repeat(32), pairAddress: "B".repeat(32), symbol: "TEST", name: "Test token", sourceUrl: "https://dexscreener.com/solana/pair" };
     await expect(scannerRouter.createCaller(context).watchlist.add(item)).resolves.toEqual({ saved: true });
     expect(dbMock.addToWatchlist).toHaveBeenCalledWith(item);
+  });
+
+  it("returns early watches through the public read-only feed", async () => {
+    const watches = [
+      { baseAddress: "mint-early", symbol: "EARLY", stage: "early", confirmedAt: null },
+      { baseAddress: "mint-confirmed", symbol: "CONFIRMED", stage: "confirmed", firstSeenAt: 1_000, confirmedAt: 181_000 },
+    ];
+    dbMock.listEarlyWatches.mockResolvedValue(watches);
+    await expect(scannerRouter.createCaller(context).earlyWatches()).resolves.toEqual({ watches });
   });
 });

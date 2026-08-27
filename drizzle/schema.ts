@@ -179,6 +179,28 @@ export const performanceCheckpoints = mysqlTable("performanceCheckpoints", {
   index("performance_base_address_idx").on(table.baseAddress),
 ]);
 
+export const earlyTokenWatches = mysqlTable("earlyTokenWatches", {
+  id: int("id").autoincrement().primaryKey(),
+  baseAddress: varchar("baseAddress", { length: 80 }).notNull().unique(),
+  pairAddress: varchar("pairAddress", { length: 80 }).notNull(),
+  symbol: varchar("symbol", { length: 64 }).notNull(),
+  name: varchar("name", { length: 160 }).notNull(),
+  sourceUrl: text("sourceUrl").notNull(),
+  discoverySourcesJson: text("discoverySourcesJson").notNull(),
+  firstLiquidityUsd: float("firstLiquidityUsd").notNull().default(0),
+  pairCreatedAt: timestamp("pairCreatedAt"),
+  firstSeenAt: timestamp("firstSeenAt").defaultNow().notNull(),
+  lastSeenAt: timestamp("lastSeenAt").defaultNow().onUpdateNow().notNull(),
+  stage: mysqlEnum("stage", ["early", "confirmed"]).notNull().default("early"),
+  confirmedAt: timestamp("confirmedAt"),
+  confirmationScanRunId: int("confirmationScanRunId"),
+  earlyAlerted: boolean("earlyAlerted").notNull().default(false),
+  confirmedAlerted: boolean("confirmedAlerted").notNull().default(false),
+}, (table) => [
+  index("early_watches_stage_seen_idx").on(table.stage, table.firstSeenAt),
+  index("early_watches_pair_idx").on(table.pairAddress),
+]);
+
 export const alertEvents = mysqlTable("alertEvents", {
   id: int("id").autoincrement().primaryKey(),
   baseAddress: varchar("baseAddress", { length: 80 }).notNull(),
@@ -186,7 +208,7 @@ export const alertEvents = mysqlTable("alertEvents", {
   opportunityScore: float("opportunityScore").notNull(),
   riskScore: float("riskScore").notNull(),
   channel: mysqlEnum("channel", ["in_app", "telegram"]).notNull(),
-  alertType: mysqlEnum("alertType", ["threshold", "liquidity_pull", "decision_flip"]).notNull().default("threshold"),
+  alertType: mysqlEnum("alertType", ["threshold", "liquidity_pull", "decision_flip", "early_watch", "confirmed_alert"]).notNull().default("threshold"),
   deliveryStatus: mysqlEnum("deliveryStatus", ["queued", "sent", "skipped", "failed"]).notNull(),
   detail: text("detail"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

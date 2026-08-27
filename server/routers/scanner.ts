@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../_core/trpc";
-import { addToWatchlist, getLatestDashboard, getPerformanceReport, getRecentAlerts, getSavedFilters, getScannerSettings, getSourceHealthSummary, listWatchlist, removeFromWatchlist, saveFilters, saveScannerSettings } from "../scannerDb";
+import { addToWatchlist, getLatestDashboard, getPerformanceReport, getRecentAlerts, getSavedFilters, getScannerSettings, getSourceHealthSummary, listEarlyWatches, listWatchlist, removeFromWatchlist, saveFilters, saveScannerSettings } from "../scannerDb";
 import { runScanner } from "../scanner/scanService";
 import { DEFAULT_FILTERS, DEFAULT_SCANNER_SETTINGS, type ScanFilters } from "../scanner/types";
 
@@ -29,5 +29,6 @@ export const scannerRouter = router({
   }),
   health: publicProcedure.query(async () => ({ events: await getSourceHealthSummary() })),
   alerts: publicProcedure.query(async () => ({ events: await getRecentAlerts() })),
+  earlyWatches: publicProcedure.query(async () => ({ watches: await listEarlyWatches() })),
   performance: publicProcedure.query(async () => getPerformanceReport()),
 });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchJupiterPrices, fetchLatestSolanaMarket, resetSourceCache } from "./source";
+import { fetchEarlySolanaDiscovery, fetchJupiterPrices, fetchLatestSolanaMarket, resetSourceCache } from "./source";
 
 const originalFetch = global.fetch;
 
@@ -38,5 +38,25 @@ describe("DEX Screener market cache", () => {
     expect(second.candidates[0]?.baseAddress).toBe("mintA");
     expect(cached.candidates[0]?.baseAddress).toBe("mintA");
     expect(global.fetch).toHaveBeenCalledTimes(5);
+  });
+
+  it("يجمع طلبات الرصد المبكر المتزامنة ويحتفظ فقط بالزوج ذي السيولة الأولية", async () => {
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes("token-pairs")) {
+        return { ok: true, status: 200, json: async () => [
+          { chainId: "solana", pairAddress: "pairA", baseToken: { address: "mintA", symbol: "EARLY", name: "Early" }, dexId: "raydium", priceUsd: "0.1", liquidity: { usd: 2_000 }, volume: { h1: 10, h24: 10 }, txns: { h1: { buys: 1, sells: 0 } }, priceChange: { m5: 0, h1: 0, h6: 0, h24: 0 }, pairCreatedAt: Date.now() },
+          { chainId: "solana", pairAddress: "pairLow", baseToken: { address: "mintA", symbol: "EARLY", name: "Early" }, dexId: "raydium", priceUsd: "0.1", liquidity: { usd: 500 }, volume: { h1: 1, h24: 1 }, txns: { h1: { buys: 0, sells: 0 } }, priceChange: { m5: 0, h1: 0, h6: 0, h24: 0 }, pairCreatedAt: Date.now() },
+        ] };
+      }
+      return { ok: true, status: 200, json: async () => [{ chainId: "solana", tokenAddress: "mintA" }] };
+    }) as typeof fetch;
+
+    const [first, second] = await Promise.all([fetchEarlySolanaDiscovery(), fetchEarlySolanaDiscovery()]);
+    const cached = await fetchEarlySolanaDiscovery();
+
+    expect(first.candidates).toHaveLength(1);
+    expect(second.candidates[0]?.liquidityUsd).toBe(2_000);
+    expect(cached.candidates[0]?.discoverySources).toEqual(["رصد مبكر: ملفات حديثة"]);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 });

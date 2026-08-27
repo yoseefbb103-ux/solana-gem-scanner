@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./db", () => ({ getDb: vi.fn() }));
 
 import { getDb } from "./db";
-import { acquireScannerRunLock, releaseScannerRunLock, SCANNER_LOCKED_MESSAGE } from "./scannerDb";
+import { acquireScannerRunLock, promoteEarlyDiscoveries, releaseScannerRunLock, SCANNER_LOCKED_MESSAGE } from "./scannerDb";
+import type { ScoredCandidate } from "./scanner/types";
 
 const mockedGetDb = vi.mocked(getDb);
 
@@ -40,5 +41,33 @@ describe("shared scanner run lock", () => {
 
     await releaseScannerRunLock("owner-token");
     expect(fixture.deleteWhere).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("early watch promotion", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("promotes an early watch once and preserves its confirmed state on the next scan", async () => {
+    const updateWhere = vi.fn().mockResolvedValueOnce({ affectedRows: 1 }).mockResolvedValueOnce({ affectedRows: 0 });
+    const updateSet = vi.fn().mockReturnValue({ where: updateWhere });
+    const confirmedAlertInsert = vi.fn().mockResolvedValue(undefined);
+    const tx = {
+      update: vi.fn().mockReturnValue({ set: updateSet }),
+      insert: vi.fn().mockReturnValue({ values: confirmedAlertInsert }),
+    };
+    const db = {
+      transaction: vi.fn(async (callback) => callback(tx)),
+    };
+    mockedGetDb.mockResolvedValue(db as never);
+    const candidate = { baseAddress: "mint", symbol: "TEST" } as ScoredCandidate;
+
+    await expect(promoteEarlyDiscoveries([candidate], 42)).resolves.toEqual([candidate]);
+    await expect(promoteEarlyDiscoveries([candidate], 43)).resolves.toEqual([]);
+
+    expect(updateSet).toHaveBeenCalledTimes(2);
+    expect(updateSet.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ stage: "confirmed", confirmationScanRunId: 42, confirmedAt: expect.any(Date), confirmedAlerted: true }));
+    expect(updateWhere).toHaveBeenCalledTimes(2);
+    expect(confirmedAlertInsert).toHaveBeenCalledTimes(1);
+    expect(confirmedAlertInsert.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ alertType: "confirmed_alert", channel: "in_app", deliveryStatus: "sent" }));
   });
 });

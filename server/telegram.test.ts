@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { sendTelegramAlert } from "./telegram";
+import { sendTelegramAlert, sendTelegramEarlyWatch } from "./telegram";
 
 const candidate = {
   pairAddress: "pair", baseAddress: "mint", symbol: "TEST", name: "Test", dexId: "raydium", sourceUrl: "https://dexscreener.com/solana/pair",
@@ -23,5 +23,30 @@ describe("sendTelegramAlert", () => {
     await expect(sendTelegramAlert(candidate)).resolves.toEqual({ status: "sent", detail: "تم إرسال تنبيه تيليجرام" });
     expect(fetchMock).toHaveBeenCalledWith("https://api.telegram.org/bottest-token/sendMessage", expect.objectContaining({ method: "POST" }));
     expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain("ليست توصية شراء أو بيع");
+  });
+
+  it("يفصل رسالة الرصد المبكر عن التنبيه المؤكد عند إرسالها", async () => {
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-token"); vi.stubEnv("TELEGRAM_CHAT_ID", "123");
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    vi.stubGlobal("fetch", fetchMock);
+    const watch = { baseAddress: "mint", pairAddress: "pair", symbol: "EARLY", name: "Early", sourceUrl: "https://dexscreener.com/solana/pair", discoverySources: ["ملفات حديثة"], firstLiquidityUsd: 2_000, pairCreatedAt: Date.now(), firstSeenAt: Date.now(), lastSeenAt: Date.now(), stage: "early" as const, confirmedAt: null };
+
+    await expect(sendTelegramEarlyWatch(watch)).resolves.toEqual({ status: "sent", detail: "تم إرسال تنبيه تيليجرام" });
+
+    const body = String(fetchMock.mock.calls[0]?.[1]?.body);
+    expect(body).toContain("EARLY WATCH");
+    expect(body).toContain("لم يكتمل فحص الأمان أو التسعير أو السيولة بعد");
+  });
+
+  it("يرسل التنبيه المؤكد بصياغة مستقلة مع التحذير الدائم للقراءة فقط", async () => {
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-token"); vi.stubEnv("TELEGRAM_CHAT_ID", "123");
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(sendTelegramAlert(candidate, "confirmed_alert")).resolves.toEqual({ status: "sent", detail: "تم إرسال تنبيه تيليجرام" });
+
+    const body = String(fetchMock.mock.calls[0]?.[1]?.body);
+    expect(body).toContain("CONFIRMED ALERT");
+    expect(body).toContain("ليست توصية شراء أو بيع");
   });
 });

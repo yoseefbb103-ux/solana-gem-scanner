@@ -1,12 +1,14 @@
-import type { ScoredCandidate } from "./scanner/types";
+import type { EarlyWatch, ScoredCandidate } from "./scanner/types";
 
 type TelegramDelivery = { status: "sent" | "skipped" | "failed"; detail: string };
+export type TelegramAlertType = "threshold" | "liquidity_pull" | "decision_flip" | "confirmed_alert";
 
-function formatAlert(candidate: ScoredCandidate, alertType: "threshold" | "liquidity_pull" | "decision_flip") {
+function formatAlert(candidate: ScoredCandidate, alertType: TelegramAlertType) {
   const factors = candidate.factors.slice(0, 3).map((factor) => `• ${factor}`).join("\n") || "• لا توجد عوامل إيجابية كافية";
   const warnings = candidate.warnings.slice(0, 3).map((warning) => `• ${warning}`).join("\n") || "• لا توجد تحذيرات آلية إضافية";
+  const heading = alertType === "liquidity_pull" ? "تحذير عاجل: احتمال سحب سيولة" : alertType === "decision_flip" ? "تحذير عاجل: انقلاب قرار الإشارة" : alertType === "confirmed_alert" ? "CONFIRMED ALERT — بوابات السيولة والأمان والتسعير اجتازت" : "SOLANA SIGNAL SCANNER — قراءة فقط";
   return [
-    alertType === "liquidity_pull" ? "تحذير عاجل: احتمال سحب سيولة" : alertType === "decision_flip" ? "تحذير عاجل: انقلاب قرار الإشارة" : "SOLANA SIGNAL SCANNER — قراءة فقط",
+    heading,
     `${candidate.symbol} | فرصة ${candidate.opportunityScore.toFixed(1)}/100 | مخاطرة ${candidate.riskScore.toFixed(1)}/100`,
     "العوامل:", factors,
     "التحذيرات:", warnings,
@@ -15,7 +17,17 @@ function formatAlert(candidate: ScoredCandidate, alertType: "threshold" | "liqui
   ].join("\n");
 }
 
-export async function sendTelegramAlert(candidate: ScoredCandidate, alertType: "threshold" | "liquidity_pull" | "decision_flip" = "threshold"): Promise<TelegramDelivery> {
+function formatEarlyWatch(watch: EarlyWatch) {
+  const age = watch.pairCreatedAt ? `${Math.max(0, Math.round((Date.now() - watch.pairCreatedAt) / 60_000))} دقيقة` : "غير متاح";
+  return [
+    "EARLY WATCH — رصد أولي فقط",
+    `${watch.symbol} | سيولة أول رصد ${watch.firstLiquidityUsd.toLocaleString("en-US", { maximumFractionDigits: 0 })}$ | عمر الزوج ${age}`,
+    `المصدر: ${watch.sourceUrl}`,
+    "لم يكتمل فحص الأمان أو التسعير أو السيولة بعد؛ لا تعد هذه رسالة دخول أو توصية شراء أو بيع.",
+  ].join("\n");
+}
+
+async function deliverTelegram(text: string): Promise<TelegramDelivery> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) return { status: "skipped", detail: "تنبيهات تيليجرام غير مهيأة" };
@@ -23,7 +35,7 @@ export async function sendTelegramAlert(candidate: ScoredCandidate, alertType: "
     const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text: formatAlert(candidate, alertType), disable_web_page_preview: true }),
+      body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) return { status: "failed", detail: `Telegram HTTP ${response.status}` };
@@ -32,4 +44,12 @@ export async function sendTelegramAlert(candidate: ScoredCandidate, alertType: "
   } catch (error) {
     return { status: "failed", detail: error instanceof Error ? error.message : "تعذر إرسال تنبيه تيليجرام" };
   }
+}
+
+export async function sendTelegramAlert(candidate: ScoredCandidate, alertType: TelegramAlertType = "threshold"): Promise<TelegramDelivery> {
+  return deliverTelegram(formatAlert(candidate, alertType));
+}
+
+export async function sendTelegramEarlyWatch(watch: EarlyWatch): Promise<TelegramDelivery> {
+  return deliverTelegram(formatEarlyWatch(watch));
 }

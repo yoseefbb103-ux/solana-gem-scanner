@@ -1,7 +1,7 @@
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
-import { alertEvents, filterSettings, knownRuggedDeployers, performanceCheckpoints, scannerRunLocks, scannerSettings, scannerSnapshots, scanRuns, securityReports, sourceHealthEvents, watchlist } from "../drizzle/schema";
+import { alertEvents, earlyTokenWatches, filterSettings, knownRuggedDeployers, performanceCheckpoints, scannerRunLocks, scannerSettings, scannerSnapshots, scanRuns, securityReports, sourceHealthEvents, watchlist } from "../drizzle/schema";
 import { getDb } from "./db";
-import { DEFAULT_FILTERS, DEFAULT_SCANNER_SETTINGS, type FundingEvidenceStatus, type ScanFilters, type ScannerSettings, type ScoredCandidate, type SecurityReport, type SourceTelemetry } from "./scanner/types";
+import { DEFAULT_FILTERS, DEFAULT_SCANNER_SETTINGS, type EarlyWatch, type FundingEvidenceStatus, type ScanFilters, type ScannerSettings, type ScoredCandidate, type SecurityReport, type SourceTelemetry, type TokenCandidate } from "./scanner/types";
 
 type StoreScanInput = {
   source: string;
@@ -15,6 +15,7 @@ type StoreScanInput = {
 };
 
 type HealthEvent = { source: string; eventType: "normal" | "slow" | "throttled" | "error" | "recovered"; responseStatus: number | null; latencyMs: number; intervalMs: number; detail?: string };
+type StagedAlertType = "threshold" | "liquidity_pull" | "decision_flip" | "early_watch" | "confirmed_alert";
 
 const parseFilters = (value?: string | null): ScanFilters => {
   try { return { ...DEFAULT_FILTERS, ...(value ? JSON.parse(value) : {}) }; } catch { return DEFAULT_FILTERS; }
@@ -25,6 +26,7 @@ const toDateMs = (value: Date | null | undefined) => value?.getTime() ?? null;
 const fundingEvidenceStatus = (value: string | null): FundingEvidenceStatus => value === "overlap_observed" || value === "no_overlap_indexed_window" || value === "no_overlap_public_window" ? value : "unavailable";
 const SCANNER_LOCK_SCOPE = "global-scanner";
 const SCANNER_LOCK_TTL_MS = 5 * 60_000;
+const CONFIRMED_ALERT_DETAIL = "تنبيه مؤكد: اجتاز المرشح بوابات السيولة والأمان والتسعير الآلي؛ يظل التحليل عالي المخاطر وليس توصية تداول.";
 
 export const SCANNER_LOCKED_MESSAGE = "يوجد فحص نشط بالفعل؛ أعد المحاولة بعد اكتماله.";
 
@@ -263,6 +265,72 @@ export async function removeFromWatchlist(baseAddress: string) {
   return true;
 }
 
+function mapEarlyWatch(row: typeof earlyTokenWatches.$inferSelect): EarlyWatch {
+  return {
+    baseAddress: row.baseAddress, pairAddress: row.pairAddress, symbol: row.symbol, name: row.name, sourceUrl: row.sourceUrl,
+    discoverySources: parseJsonArray(row.discoverySourcesJson), firstLiquidityUsd: Number(row.firstLiquidityUsd), pairCreatedAt: toDateMs(row.pairCreatedAt),
+    firstSeenAt: row.firstSeenAt.getTime(), lastSeenAt: row.lastSeenAt.getTime(), stage: row.stage, confirmedAt: toDateMs(row.confirmedAt),
+  };
+}
+
+export async function recordEarlyDiscoveries(candidates: TokenCandidate[]): Promise<EarlyWatch[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const unique = Array.from(new Map(candidates.map((candidate) => [candidate.baseAddress, candidate])).values()).slice(0, 12);
+  if (!unique.length) return [];
+  const existingRows = await db.select({ baseAddress: earlyTokenWatches.baseAddress }).from(earlyTokenWatches).where(inArray(earlyTokenWatches.baseAddress, unique.map((candidate) => candidate.baseAddress)));
+  const existing = new Set(existingRows.map((row) => row.baseAddress));
+  const discovered = unique.filter((candidate) => !existing.has(candidate.baseAddress));
+  const now = new Date();
+  await db.insert(earlyTokenWatches).values(unique.map((candidate) => ({
+    baseAddress: candidate.baseAddress, pairAddress: candidate.pairAddress, symbol: candidate.symbol, name: candidate.name, sourceUrl: candidate.sourceUrl,
+    discoverySourcesJson: JSON.stringify(candidate.discoverySources), firstLiquidityUsd: candidate.liquidityUsd,
+    pairCreatedAt: candidate.pairCreatedAt ? new Date(candidate.pairCreatedAt) : null, firstSeenAt: now, lastSeenAt: now,
+  }))).onDuplicateKeyUpdate({ set: {
+    pairAddress: sql`VALUES(\`pairAddress\`)`, symbol: sql`VALUES(\`symbol\`)`, name: sql`VALUES(\`name\`)`, sourceUrl: sql`VALUES(\`sourceUrl\`)`,
+    discoverySourcesJson: sql`VALUES(\`discoverySourcesJson\`)`, lastSeenAt: now,
+  } });
+  return discovered.map((candidate) => ({
+    baseAddress: candidate.baseAddress, pairAddress: candidate.pairAddress, symbol: candidate.symbol, name: candidate.name, sourceUrl: candidate.sourceUrl,
+    discoverySources: candidate.discoverySources, firstLiquidityUsd: candidate.liquidityUsd, pairCreatedAt: candidate.pairCreatedAt,
+    firstSeenAt: now.getTime(), lastSeenAt: now.getTime(), stage: "early", confirmedAt: null,
+  }));
+}
+
+export async function promoteEarlyDiscoveries(candidates: ScoredCandidate[], scanRunId: number): Promise<ScoredCandidate[]> {
+  const db = await getDb();
+  if (!db || !candidates.length) return [];
+  const promoted: ScoredCandidate[] = [];
+  const confirmedAt = new Date();
+  for (const candidate of candidates) {
+    const claimed = await db.transaction(async (tx) => {
+      const result = await tx.update(earlyTokenWatches).set({ stage: "confirmed", confirmedAt, confirmationScanRunId: scanRunId, confirmedAlerted: true }).where(and(
+        eq(earlyTokenWatches.baseAddress, candidate.baseAddress),
+        eq(earlyTokenWatches.stage, "early"),
+        eq(earlyTokenWatches.confirmedAlerted, false),
+      ));
+      const header = Array.isArray(result) ? result[0] : result;
+      if (Number((header as { affectedRows?: number } | undefined)?.affectedRows ?? 0) === 0) return false;
+      await tx.insert(alertEvents).values({ baseAddress: candidate.baseAddress, symbol: candidate.symbol, opportunityScore: candidate.opportunityScore, riskScore: candidate.riskScore, channel: "in_app", alertType: "confirmed_alert", deliveryStatus: "sent", detail: CONFIRMED_ALERT_DETAIL });
+      return true;
+    });
+    if (claimed) promoted.push(candidate);
+  }
+  return promoted;
+}
+
+export async function listEarlyWatches() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(earlyTokenWatches).orderBy(desc(earlyTokenWatches.firstSeenAt)).limit(12).then((rows) => rows.map(mapEarlyWatch));
+}
+
+export async function recordEarlyWatchAlert(watch: EarlyWatch, detail: string, deliveryStatus: "sent" | "skipped" | "failed" = "sent", channel: "in_app" | "telegram" = "in_app") {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(alertEvents).values({ baseAddress: watch.baseAddress, symbol: watch.symbol, opportunityScore: 0, riskScore: 0, channel, alertType: "early_watch", deliveryStatus, detail });
+}
+
 export async function queuePerformanceCheckpoints(scanId: number, candidates: ScoredCandidate[]) {
   const db = await getDb();
   if (!db) return;
@@ -327,13 +395,13 @@ export async function wasRecentlyAlerted(baseAddress: string, cooldownMinutes: n
   return Boolean(event);
 }
 
-export async function recordInAppAlert(candidate: ScoredCandidate, detail: string, alertType: "threshold" | "liquidity_pull" | "decision_flip" = "threshold") {
+export async function recordInAppAlert(candidate: ScoredCandidate, detail: string, alertType: StagedAlertType = "threshold") {
   const db = await getDb();
   if (!db) return;
   await db.insert(alertEvents).values({ baseAddress: candidate.baseAddress, symbol: candidate.symbol, opportunityScore: candidate.opportunityScore, riskScore: candidate.riskScore, channel: "in_app", alertType, deliveryStatus: "sent", detail });
 }
 
-export async function recordTelegramAlert(candidate: ScoredCandidate, deliveryStatus: "sent" | "skipped" | "failed", detail: string, alertType: "threshold" | "liquidity_pull" | "decision_flip" = "threshold") {
+export async function recordTelegramAlert(candidate: ScoredCandidate, deliveryStatus: "sent" | "skipped" | "failed", detail: string, alertType: StagedAlertType = "threshold") {
   const db = await getDb();
   if (!db) return;
   await db.insert(alertEvents).values({ baseAddress: candidate.baseAddress, symbol: candidate.symbol, opportunityScore: candidate.opportunityScore, riskScore: candidate.riskScore, channel: "telegram", alertType, deliveryStatus, detail });

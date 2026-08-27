@@ -60,4 +60,10 @@ export type SourceTelemetry = {
   latestStatus: number | null; maxLatencyMs: number; capturedAt: number;
 };
 
+export type EarlyWatch = {
+  baseAddress: string; pairAddress: string; symbol: string; name: string; sourceUrl: string;
+  discoverySources: string[]; firstLiquidityUsd: number; pairCreatedAt: number | null;
+  firstSeenAt: number; lastSeenAt: number; stage: "early" | "confirmed"; confirmedAt: number | null;
+};
+
 export type MarketFetchResult = { candidates: TokenCandidate[]; telemetry: SourceTelemetry };

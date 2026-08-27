@@ -2,7 +2,7 @@ import { applyFilters, scoreCandidates, type CandidateSignals } from "./scoring"
 import { randomUUID } from "node:crypto";
 import { inspectOnchainSecurity } from "./onchain";
 import { fetchSecurityReport } from "./security";
-import { fetchJupiterPrices, fetchLatestSolanaMarket, fetchTokenPriceUsd } from "./source";
+import { fetchEarlySolanaDiscovery, fetchJupiterPrices, fetchLatestSolanaMarket, fetchTokenPriceUsd } from "./source";
 import type { ScanFilters, ScannerSettings, ScoredCandidate, SecurityReport } from "./types";
 import {
   getDuePerformanceChecks,
@@ -17,7 +17,10 @@ import {
   getScannerSettings,
   healthEventFromTelemetry,
   queuePerformanceCheckpoints,
+  promoteEarlyDiscoveries,
   recordInAppAlert,
+  recordEarlyDiscoveries,
+  recordEarlyWatchAlert,
   recordTelegramAlert,
   recordSourceHealth,
   releaseScannerRunLock,
@@ -26,7 +29,7 @@ import {
   storeScan,
   wasRecentlyAlerted,
 } from "../scannerDb";
-import { sendTelegramAlert } from "../telegram";
+import { sendTelegramAlert, sendTelegramEarlyWatch } from "../telegram";
 
 export type ScanOrigin = "manual" | "worker";
 export type ScannerRun = {
@@ -38,6 +41,13 @@ export type ScannerRun = {
   filters: ScanFilters;
   settings: ScannerSettings;
   persistenceAvailable: boolean;
+  sourceTelemetry: { throttled: boolean; slowRequestCount: number; errorCount: number; latestStatus: number | null; maxLatencyMs: number };
+};
+
+export type EarlyDiscoveryRun = {
+  fetchedAt: Date;
+  totalCandidates: number;
+  discoveries: Awaited<ReturnType<typeof recordEarlyDiscoveries>>;
   sourceTelemetry: { throttled: boolean; slowRequestCount: number; errorCount: number; latestStatus: number | null; maxLatencyMs: number };
 };
 
@@ -121,12 +131,59 @@ async function recordCandidateAlerts(candidates: ScoredCandidate[], eligibleForT
   }
 }
 
+async function recordEarlyDiscoveryAlerts(discoveries: Awaited<ReturnType<typeof recordEarlyDiscoveries>>) {
+  for (const watch of discoveries.slice(0, 4)) {
+    const detail = "رصد مبكر: ظهر زوج جديد بسيولة أولية؛ لم يكتمل فحص الأمان أو التسعير بعد.";
+    await recordEarlyWatchAlert(watch, detail);
+    const delivery = await sendTelegramEarlyWatch(watch);
+    await recordEarlyWatchAlert(watch, delivery.detail, delivery.status, "telegram");
+  }
+}
+
+export function selectConfirmedCandidates(candidates: ScoredCandidate[]) {
+  return candidates.filter((candidate) => candidate.decision === "monitor" && candidate.security.status === "passed" && candidate.liquidityUsd >= 10_000 && candidate.jupiterPriceUsd !== null && candidate.priceDivergencePct !== null && candidate.priceDivergencePct <= 12 && !candidate.liquidityPullDetected);
+}
+
+export function excludePromotedFromThreshold(candidates: ScoredCandidate[], promoted: ScoredCandidate[]) {
+  const promotedAddresses = new Set(promoted.map((candidate) => candidate.baseAddress));
+  return candidates.filter((candidate) => !promotedAddresses.has(candidate.baseAddress));
+}
+
+async function recordConfirmedAlerts(candidates: ScoredCandidate[]) {
+  for (const candidate of candidates) {
+    const delivery = await sendTelegramAlert(candidate, "confirmed_alert");
+    await recordTelegramAlert(candidate, delivery.status, delivery.detail, "confirmed_alert");
+  }
+}
+
 export async function settleDuePerformance() {
   const due = await getDuePerformanceChecks();
   await Promise.all(due.map(async (checkpoint) => {
     try { await settlePerformanceCheckpoint(checkpoint.id, await fetchTokenPriceUsd(checkpoint.baseAddress)); }
     catch { await settlePerformanceCheckpoint(checkpoint.id, null); }
   }));
+}
+
+export async function runEarlyDiscovery(options: { intervalMs: number }): Promise<EarlyDiscoveryRun> {
+  const lockToken = randomUUID();
+  await acquireScannerRunLock(lockToken);
+  const fetchedAt = new Date();
+  try {
+    const market = await fetchEarlySolanaDiscovery();
+    await recordSourceHealth(healthEventFromTelemetry(market.telemetry, options.intervalMs));
+    const discoveries = await recordEarlyDiscoveries(market.candidates);
+    await recordEarlyDiscoveryAlerts(discoveries);
+    return {
+      fetchedAt, totalCandidates: market.candidates.length, discoveries,
+      sourceTelemetry: { throttled: market.telemetry.throttled, slowRequestCount: market.telemetry.slowRequestCount, errorCount: market.telemetry.errorCount, latestStatus: market.telemetry.latestStatus, maxLatencyMs: market.telemetry.maxLatencyMs },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "فشل الرصد المبكر";
+    await recordSourceHealth({ source: "DEX Screener Early Discovery", eventType: "error", responseStatus: null, latencyMs: 0, intervalMs: options.intervalMs, detail: message });
+    throw new Error(message);
+  } finally {
+    await releaseScannerRunLock(lockToken).catch((error) => console.error("[Scanner] تعذر تحرير قفل الرصد المبكر", error));
+  }
 }
 
 export async function runScanner(options: { origin: ScanOrigin; filters?: ScanFilters; intervalMs?: number }): Promise<ScannerRun> {
@@ -155,7 +212,15 @@ export async function runScanner(options: { origin: ScanOrigin; filters?: ScanFi
       const candidates = scoreCandidates(candidatesToProcess, previousScores, securityByAddress, signalsByAddress);
       const visibleCandidates = applyFilters(candidates, filters, settings.strictSecurity);
       const stored = await storeScan({ source: "DEX Screener public API + RugCheck + Jupiter", status: candidates.length ? "success" : "partial", executionOrigin: options.origin, filters, candidates, visibleCount: visibleCandidates.length, fetchedAt: startedAt });
-      if (stored.scanId) await Promise.all([queuePerformanceCheckpoints(stored.scanId, candidates), recordCandidateAlerts(candidates, visibleCandidates, settings, previousDecisions), settleDuePerformance()]);
+      if (stored.scanId) {
+        const promoted = await promoteEarlyDiscoveries(selectConfirmedCandidates(candidates), stored.scanId);
+        await Promise.all([
+          queuePerformanceCheckpoints(stored.scanId, candidates),
+          recordCandidateAlerts(candidates, excludePromotedFromThreshold(visibleCandidates, promoted), settings, previousDecisions),
+          recordConfirmedAlerts(promoted),
+          settleDuePerformance(),
+        ]);
+      }
       return {
         scanId: stored.scanId, source: "DEX Screener public API + RugCheck + Jupiter", fetchedAt: startedAt, totalCandidates: candidates.length, candidates: visibleCandidates,
         filters, settings, persistenceAvailable: stored.persisted,
