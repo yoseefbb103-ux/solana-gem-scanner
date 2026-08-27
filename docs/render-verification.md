@@ -59,3 +59,11 @@ Deploy commit `6cc083e`/`456960c` شغّل `scripts/ensure-db.mjs` بنجاح و
 لم تكتمل صحة خدمة Oregon القديمة لأن bootstrap يفشل في الوصول إلى PostgreSQL الموجود في Ohio بعنوان داخلي `ENOTFOUND`. هذا قيد بنية المنطقة وليس خطأ في مخرجات البناء أو أمر التشغيل. خدمة `solana-gem-scanner-ohio` هي الخدمة المعتمدة المتصلة بالقاعدة في Ohio، وتبقى خدمة Oregon القديمة محفوظة دون حذف بناءً على قرار المستخدم.
 
 لم يُجرَ تدوير لبيانات Telegram بناءً على طلب المستخدم، لذلك يظل خطر انكشاف الاعتماد موثقاً ولا يُوصف بأنه مُعالج أمنياً، رغم إثبات نجاح الإرسال من Worker قبل ذلك.
+
+## نجاح نشر الصور على Render Ohio — 2026-08-27 20:44 UTC
+
+أصبح commit `9c4bb6f` هو **آخر commit ناجح وLive** في خدمة `solana-gem-scanner-ohio`. رابط الخدمة الرسمي: [https://solana-gem-scanner-ohio.onrender.com](https://solana-gem-scanner-ohio.onrender.com). يحتوي commit على ملفات `server/telegram.ts` و`server/telegram.test.ts` و`server/scanner/source.ts` و`server/scanner/source.test.ts` و`server/scanner/types.ts` في المسارات الصحيحة، لذلك وصلت معالجة صورة العملة إلى بناء Render Ohio. قبل ذلك كان `55fce64` هو آخر نشر ناجح؛ لم تعد الصفحة تعرض 9c4bb6f كـ In progress.
+
+## تحقق Worker Ohio بعد نشر Telegram المصوّر — 2026-08-27 20:49 UTC
+
+تظهر صفحة Worker Ohio أن آخر commit ناجح وLive هو `9c4bb6f`، وهو نفس commit الذي يحتوي ملفات Telegram وscanner في مساراتها الصحيحة. في السجلات بعد بدء النسخة الجديدة ظهرت دورات `confirmed scan` مكتملة بـ 32 مرشحاً و`early discovery` مكتملة دورياً، وظهرت عدة مرات الرسالة `[Telegram] decision_flip sent: تم إرسال صورة وتنبيه تيليجرام`، إضافة إلى رسائل `تم إرسال تنبيه تيليجرام` عند عدم توفر صورة. هذا يثبت أن مسار الإرسال الفعلي في Worker يستخدم النسخة المصوّرة وليس Web فقط. لم تظهر في السجل الأخير أخطاء 401.
