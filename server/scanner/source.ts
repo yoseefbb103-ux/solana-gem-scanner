@@ -7,12 +7,21 @@ export type JupiterPrices = { prices: Map<string, number>; unavailableAddresses:
 
 const API_BASE = "https://api.dexscreener.com";
 const JUPITER_PRICE_URL = "https://api.jup.ag/price/v3";
+const MARKET_CACHE_TTL_MS = 45_000;
 const DISCOVERY_PATHS = [
   { path: "/token-profiles/latest/v1", source: "ملفات حديثة" },
   { path: "/token-profiles/recent-updates/v1", source: "ملفات محدّثة" },
   { path: "/token-boosts/latest/v1", source: "تعزيزات حديثة" },
   { path: "/token-boosts/top/v1", source: "تعزيزات بارزة" },
 ] as const;
+
+let cachedMarket: { value: MarketFetchResult; expiresAt: number } | null = null;
+let pendingMarketFetch: Promise<MarketFetchResult> | null = null;
+
+export function resetSourceCache() {
+  cachedMarket = null;
+  pendingMarketFetch = null;
+}
 
 async function dexFetch<T>(path: string, telemetry: SourceTelemetry): Promise<T> {
   const startedAt = Date.now();
@@ -55,7 +64,7 @@ function toCandidate(pair: DexScreenerPair, pairs: DexScreenerPair[], profile: P
   };
 }
 
-export async function fetchLatestSolanaMarket(): Promise<MarketFetchResult> {
+async function fetchLatestSolanaMarketUncached(): Promise<MarketFetchResult> {
   const telemetry: SourceTelemetry = { source: "DEX Screener", requestCount: 0, throttled: false, slowRequestCount: 0, errorCount: 0, latestStatus: null, maxLatencyMs: 0, capturedAt: Date.now() };
   const collected = new Map<string, ProfileWithSource>();
   await Promise.all(DISCOVERY_PATHS.map(async ({ path, source }) => {
@@ -86,6 +95,19 @@ export async function fetchLatestSolanaMarket(): Promise<MarketFetchResult> {
     if (!existing || candidate.liquidityUsd > existing.liquidityUsd) byAddress.set(candidate.baseAddress, candidate);
   }
   return { candidates: Array.from(byAddress.values()).sort((left, right) => right.liquidityUsd - left.liquidityUsd), telemetry };
+}
+
+export async function fetchLatestSolanaMarket(): Promise<MarketFetchResult> {
+  if (cachedMarket && cachedMarket.expiresAt > Date.now()) return cachedMarket.value;
+  if (pendingMarketFetch) return pendingMarketFetch;
+  pendingMarketFetch = fetchLatestSolanaMarketUncached();
+  try {
+    const market = await pendingMarketFetch;
+    cachedMarket = { value: market, expiresAt: Date.now() + MARKET_CACHE_TTL_MS };
+    return market;
+  } finally {
+    pendingMarketFetch = null;
+  }
 }
 
 export async function fetchJupiterPrices(addresses: string[]): Promise<JupiterPrices> {

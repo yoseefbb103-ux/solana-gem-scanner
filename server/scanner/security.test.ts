@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchSecurityReport, requiresStrictExclusion } from "./security";
+import { fetchSecurityReport, requiresStrictExclusion, resetSecurityCache } from "./security";
 
 const candidate = { pairAddress: "pair", baseAddress: "mint", symbol: "TEST", name: "Test", dexId: "raydium", sourceUrl: "https://dexscreener.com/solana/pair", priceUsd: 0.1, liquidityUsd: 20_000, volumeH1: 3_000, volumeH24: 20_000, transactionsH1: 25, buysH1: 15, sellsH1: 10, priceChangeM5: 2, priceChangeH1: 4, priceChangeH6: 3, priceChangeH24: 2, pairCreatedAt: Date.now() };
 
 describe("RugCheck security enrichment", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { resetSecurityCache(); vi.unstubAllGlobals(); });
   it("flags open mint authority and unlocked liquidity for strict exclusion", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ creator: "creator", rugged: false, score: 11, token: { mintAuthority: "authority", freezeAuthority: null }, topHolders: [{ pct: 30 }, { pct: 20 }], markets: [{ lp: { isLocked: false } }], risks: [{ level: "high", name: "High risk flag" }] }) }));
     const report = await fetchSecurityReport(candidate, true, true);
@@ -20,5 +20,30 @@ describe("RugCheck security enrichment", () => {
     const report = await fetchSecurityReport(candidate, false, false);
     expect(report.status).toBe("unavailable");
     expect(report.flags.join(" ")).toContain("بيانات أمان غير متاحة");
+  });
+
+  it("shares a raw RugCheck report while keeping per-call warnings independent", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ token: {}, markets: [{ lp: { isLocked: true } }] }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [normal, symbolConflict] = await Promise.all([
+      fetchSecurityReport(candidate, false, false),
+      fetchSecurityReport(candidate, true, true),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(normal.symbolConflict).toBe(false);
+    expect(symbolConflict.symbolConflict).toBe(true);
+    expect(symbolConflict.flags.join(" ")).toContain("رمز مطابق");
+  });
+
+  it("does not cache unavailable responses", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchSecurityReport(candidate, false, false);
+    await fetchSecurityReport(candidate, false, false);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

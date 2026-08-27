@@ -52,6 +52,12 @@ export const scannerSnapshots = mysqlTable("scannerSnapshots", {
   metadataCompleteness: int("metadataCompleteness").notNull().default(0),
   jupiterPriceUsd: float("jupiterPriceUsd"),
   priceDivergencePct: float("priceDivergencePct"),
+  holderClusterScore: float("holderClusterScore"),
+  bundleDetected: boolean("bundleDetected"),
+  washTradingScore: float("washTradingScore"),
+  fundingSourceOverlap: boolean("fundingSourceOverlap"),
+  token2022Flags: text("token2022Flags"),
+  lpBurnVerified: boolean("lpBurnVerified"),
   factorsJson: text("factorsJson").notNull(),
   warningsJson: text("warningsJson").notNull(),
   fetchedAt: timestamp("fetchedAt").defaultNow().notNull(),
@@ -82,6 +88,12 @@ export const securityReports = mysqlTable("securityReports", {
   rugcheckScore: float("rugcheckScore"),
   symbolConflict: boolean("symbolConflict").notNull().default(false),
   deepScanApplied: boolean("deepScanApplied").notNull().default(false),
+  holderClusterScore: float("holderClusterScore"),
+  bundleDetected: boolean("bundleDetected"),
+  washTradingScore: float("washTradingScore"),
+  fundingSourceOverlap: boolean("fundingSourceOverlap"),
+  token2022Flags: text("token2022Flags"),
+  lpBurnVerified: boolean("lpBurnVerified"),
   flagsJson: text("flagsJson").notNull(),
   checkedAt: timestamp("checkedAt").defaultNow().notNull(),
 }, (table) => [
@@ -109,6 +121,12 @@ export const sourceHealthEvents = mysqlTable("sourceHealthEvents", {
   detail: text("detail"),
   occurredAt: timestamp("occurredAt").defaultNow().notNull(),
 }, (table) => [index("source_health_events_source_date_idx").on(table.source, table.occurredAt)]);
+
+export const scannerRunLocks = mysqlTable("scannerRunLocks", {
+  scopeKey: varchar("scopeKey", { length: 64 }).primaryKey(),
+  lockToken: varchar("lockToken", { length: 80 }).notNull(),
+  lockedAt: timestamp("lockedAt").defaultNow().notNull(),
+}, (table) => [index("scanner_run_locks_locked_at_idx").on(table.lockedAt)]);
 
 export const scannerSettings = mysqlTable("scannerSettings", {
   id: int("id").autoincrement().primaryKey(),

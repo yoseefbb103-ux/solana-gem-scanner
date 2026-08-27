@@ -1,4 +1,5 @@
 import { applyFilters, scoreCandidates, type CandidateSignals } from "./scoring";
+import { randomUUID } from "node:crypto";
 import { fetchSecurityReport } from "./security";
 import { fetchJupiterPrices, fetchLatestSolanaMarket, fetchTokenPriceUsd } from "./source";
 import type { ScanFilters, ScannerSettings, ScoredCandidate, SecurityReport } from "./types";
@@ -11,12 +12,14 @@ import {
   getPreviousScores,
   getRecentlyProcessedPairAddresses,
   getSavedFilters,
+  acquireScannerRunLock,
   getScannerSettings,
   healthEventFromTelemetry,
   queuePerformanceCheckpoints,
   recordInAppAlert,
   recordTelegramAlert,
   recordSourceHealth,
+  releaseScannerRunLock,
   rememberRuggedDeployer,
   settlePerformanceCheckpoint,
   storeScan,
@@ -109,38 +112,44 @@ export async function settleDuePerformance() {
 }
 
 export async function runScanner(options: { origin: ScanOrigin; filters?: ScanFilters; intervalMs?: number }): Promise<ScannerRun> {
-  const startedAt = new Date();
-  const filters = options.filters ?? await getSavedFilters();
-  const settings = await getScannerSettings();
-  const intervalMs = options.intervalMs ?? 60_000;
+  const lockToken = randomUUID();
+  await acquireScannerRunLock(lockToken);
   try {
-    const [previousScores, knownSymbols, recentPairs, market] = await Promise.all([
-      getPreviousScores(), getKnownSymbolAddresses(), getRecentlyProcessedPairAddresses(1), fetchLatestSolanaMarket(),
-    ]);
-    await recordSourceHealth(healthEventFromTelemetry(market.telemetry, intervalMs));
-    const candidatesToProcess = market.candidates;
-    const history = await getCandidateHistory(candidatesToProcess.map((candidate) => candidate.baseAddress));
-    const previousDecisions = new Map(Array.from(history.entries()).flatMap(([address, records]) => records.length ? [[address, records[0].decision] as const] : []));
-    const securityByAddress = await assessSecurity(candidatesToProcess, knownSymbols, settings.deepScanLimit, new Set());
-    const preScored = scoreCandidates(candidatesToProcess, previousScores, securityByAddress);
-    const priceCheckAddresses = preScored.filter((candidate) => candidate.security.status === "passed" && candidate.decision !== "avoid").sort((left, right) => right.opportunityScore - left.opportunityScore).slice(0, settings.deepScanLimit).map((candidate) => candidate.baseAddress);
-    const jupiter = await fetchJupiterPrices(priceCheckAddresses);
-    const liquiditySignals = buildLiquiditySignals(candidatesToProcess, history);
-    const signalsByAddress = new Map<string, CandidateSignals>(priceCheckAddresses.map((address) => [address, { ...liquiditySignals.get(address), jupiterChecked: true, jupiterPriceUsd: jupiter.prices.get(address) ?? null }]));
-    for (const [address, signals] of Array.from(liquiditySignals.entries())) if (!signalsByAddress.has(address)) signalsByAddress.set(address, signals);
-    const candidates = scoreCandidates(candidatesToProcess, previousScores, securityByAddress, signalsByAddress);
-    const visibleCandidates = applyFilters(candidates, filters, settings.strictSecurity);
-    const stored = await storeScan({ source: "DEX Screener public API + RugCheck + Jupiter", status: candidates.length ? "success" : "partial", executionOrigin: options.origin, filters, candidates, visibleCount: visibleCandidates.length, fetchedAt: startedAt });
-    if (stored.scanId) await Promise.all([queuePerformanceCheckpoints(stored.scanId, candidates), recordCandidateAlerts(candidates, visibleCandidates, settings, previousDecisions), settleDuePerformance()]);
-    return {
-      scanId: stored.scanId, source: "DEX Screener public API + RugCheck + Jupiter", fetchedAt: startedAt, totalCandidates: candidates.length, candidates: visibleCandidates,
-      filters, settings, persistenceAvailable: stored.persisted,
-      sourceTelemetry: { throttled: market.telemetry.throttled, slowRequestCount: market.telemetry.slowRequestCount, errorCount: market.telemetry.errorCount, latestStatus: market.telemetry.latestStatus, maxLatencyMs: market.telemetry.maxLatencyMs },
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "فشل تحديث المصدر";
-    await recordSourceHealth({ source: "DEX Screener", eventType: "error", responseStatus: null, latencyMs: 0, intervalMs, detail: message });
-    await storeScan({ source: "DEX Screener public API + RugCheck", status: "failed", executionOrigin: options.origin, filters, candidates: [], visibleCount: 0, fetchedAt: startedAt, errorMessage: message });
-    throw new Error(message);
+    const startedAt = new Date();
+    const filters = options.filters ?? await getSavedFilters();
+    const settings = await getScannerSettings();
+    const intervalMs = options.intervalMs ?? 60_000;
+    try {
+      const [previousScores, knownSymbols, recentPairs, market] = await Promise.all([
+        getPreviousScores(), getKnownSymbolAddresses(), getRecentlyProcessedPairAddresses(1), fetchLatestSolanaMarket(),
+      ]);
+      await recordSourceHealth(healthEventFromTelemetry(market.telemetry, intervalMs));
+      const candidatesToProcess = market.candidates;
+      const history = await getCandidateHistory(candidatesToProcess.map((candidate) => candidate.baseAddress));
+      const previousDecisions = new Map(Array.from(history.entries()).flatMap(([address, records]) => records.length ? [[address, records[0].decision] as const] : []));
+      const securityByAddress = await assessSecurity(candidatesToProcess, knownSymbols, settings.deepScanLimit, new Set());
+      const preScored = scoreCandidates(candidatesToProcess, previousScores, securityByAddress);
+      const priceCheckAddresses = preScored.filter((candidate) => candidate.security.status === "passed" && candidate.decision !== "avoid").sort((left, right) => right.opportunityScore - left.opportunityScore).slice(0, settings.deepScanLimit).map((candidate) => candidate.baseAddress);
+      const jupiter = await fetchJupiterPrices(priceCheckAddresses);
+      const liquiditySignals = buildLiquiditySignals(candidatesToProcess, history);
+      const signalsByAddress = new Map<string, CandidateSignals>(priceCheckAddresses.map((address) => [address, { ...liquiditySignals.get(address), jupiterChecked: true, jupiterPriceUsd: jupiter.prices.get(address) ?? null }]));
+      for (const [address, signals] of Array.from(liquiditySignals.entries())) if (!signalsByAddress.has(address)) signalsByAddress.set(address, signals);
+      const candidates = scoreCandidates(candidatesToProcess, previousScores, securityByAddress, signalsByAddress);
+      const visibleCandidates = applyFilters(candidates, filters, settings.strictSecurity);
+      const stored = await storeScan({ source: "DEX Screener public API + RugCheck + Jupiter", status: candidates.length ? "success" : "partial", executionOrigin: options.origin, filters, candidates, visibleCount: visibleCandidates.length, fetchedAt: startedAt });
+      if (stored.scanId) await Promise.all([queuePerformanceCheckpoints(stored.scanId, candidates), recordCandidateAlerts(candidates, visibleCandidates, settings, previousDecisions), settleDuePerformance()]);
+      return {
+        scanId: stored.scanId, source: "DEX Screener public API + RugCheck + Jupiter", fetchedAt: startedAt, totalCandidates: candidates.length, candidates: visibleCandidates,
+        filters, settings, persistenceAvailable: stored.persisted,
+        sourceTelemetry: { throttled: market.telemetry.throttled, slowRequestCount: market.telemetry.slowRequestCount, errorCount: market.telemetry.errorCount, latestStatus: market.telemetry.latestStatus, maxLatencyMs: market.telemetry.maxLatencyMs },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "فشل تحديث المصدر";
+      await recordSourceHealth({ source: "DEX Screener", eventType: "error", responseStatus: null, latencyMs: 0, intervalMs, detail: message });
+      await storeScan({ source: "DEX Screener public API + RugCheck", status: "failed", executionOrigin: options.origin, filters, candidates: [], visibleCount: 0, fetchedAt: startedAt, errorMessage: message });
+      throw new Error(message);
+    }
+  } finally {
+    await releaseScannerRunLock(lockToken).catch((error) => console.error("[Scanner] تعذر تحرير قفل الفحص", error));
   }
 }

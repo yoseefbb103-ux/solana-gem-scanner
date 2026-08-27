@@ -43,6 +43,8 @@ export type SecurityReport = {
   mintAuthorityOpen: boolean; freezeAuthorityOpen: boolean; lpLockStatus: LpLockStatus;
   holderTopPct: number | null; holderTop10Pct: number | null; creatorAddress: string | null; ruggedCreator: boolean;
   knownRuggedDeployer: boolean; sprayCount24h: number; rugcheckScore: number | null; symbolConflict: boolean; deepScanApplied: boolean; flags: string[]; checkedAt: number;
+  holderClusterScore: number | null; bundleDetected: boolean | null; washTradingScore: number | null; fundingSourceOverlap: boolean | null;
+  token2022Flags: string[]; lpBurnVerified: boolean | null;
 };
 
 export type ScoredCandidate = TokenCandidate & {

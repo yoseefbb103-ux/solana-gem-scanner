@@ -17,8 +17,37 @@ type RugCheckReport = {
 
 const RUGCHECK_BASE_URL = "https://api.rugcheck.xyz";
 const HIGH_RISK_LEVELS = new Set(["danger", "high", "critical"]);
+const SECURITY_CACHE_TTL_MS = 45_000;
+
+let securityCache = new Map<string, { value: RugCheckReport; expiresAt: number }>();
+let pendingSecurityFetches = new Map<string, Promise<RugCheckReport>>();
 
 const asNumber = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : null;
+
+export function resetSecurityCache() {
+  securityCache = new Map();
+  pendingSecurityFetches = new Map();
+}
+
+async function fetchRugCheckReport(baseAddress: string): Promise<RugCheckReport> {
+  const cached = securityCache.get(baseAddress);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const pending = pendingSecurityFetches.get(baseAddress);
+  if (pending) return pending;
+  const request = (async () => {
+    const response = await fetch(`${RUGCHECK_BASE_URL}/v1/tokens/${baseAddress}/report`, { signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) throw new Error(`RugCheck HTTP ${response.status}`);
+    const report = await response.json() as RugCheckReport;
+    securityCache.set(baseAddress, { value: report, expiresAt: Date.now() + SECURITY_CACHE_TTL_MS });
+    return report;
+  })();
+  pendingSecurityFetches.set(baseAddress, request);
+  try {
+    return await request;
+  } finally {
+    pendingSecurityFetches.delete(baseAddress);
+  }
+}
 
 function getLpLockStatus(markets: RugCheckMarket[] | undefined): SecurityReport["lpLockStatus"] {
   const values = (markets ?? []).flatMap((market) => {
@@ -42,9 +71,7 @@ function getRugFlags(risks: RugCheckRisk[] | undefined) {
 export async function fetchSecurityReport(candidate: TokenCandidate, symbolConflict: boolean, deepScanApplied: boolean): Promise<SecurityReport> {
   const checkedAt = Date.now();
   try {
-    const response = await fetch(`${RUGCHECK_BASE_URL}/v1/tokens/${candidate.baseAddress}/report`, { signal: AbortSignal.timeout(10_000) });
-    if (!response.ok) throw new Error(`RugCheck HTTP ${response.status}`);
-    const report = await response.json() as RugCheckReport;
+    const report = await fetchRugCheckReport(candidate.baseAddress);
     const mintAuthorityOpen = Boolean(report.token?.mintAuthority);
     const freezeAuthorityOpen = Boolean(report.token?.freezeAuthority);
     const lpLockStatus = getLpLockStatus(report.markets);
@@ -79,6 +106,12 @@ export async function fetchSecurityReport(candidate: TokenCandidate, symbolConfl
       rugcheckScore: asNumber(report.score),
       symbolConflict,
       deepScanApplied,
+      holderClusterScore: null,
+      bundleDetected: null,
+      washTradingScore: null,
+      fundingSourceOverlap: null,
+      token2022Flags: [],
+      lpBurnVerified: null,
       flags,
       checkedAt,
     };
@@ -102,6 +135,12 @@ export async function fetchSecurityReport(candidate: TokenCandidate, symbolConfl
       rugcheckScore: null,
       symbolConflict,
       deepScanApplied,
+      holderClusterScore: null,
+      bundleDetected: null,
+      washTradingScore: null,
+      fundingSourceOverlap: null,
+      token2022Flags: [],
+      lpBurnVerified: null,
       flags: [`بيانات أمان غير متاحة: ${message}`],
       checkedAt,
     };

@@ -13,7 +13,7 @@ const round = (value: number) => Math.round(value * 10) / 10;
 const median = (values: number[]) => { const sorted = [...values].sort((left, right) => left - right); const middle = Math.floor(sorted.length / 2); return sorted.length ? sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2 : 0; };
 
 export function unavailableSecurity(candidate: TokenCandidate): SecurityReport {
-  return { baseAddress: candidate.baseAddress, pairAddress: candidate.pairAddress, symbol: candidate.symbol, source: "RugCheck", status: "unavailable", mintAuthorityOpen: false, freezeAuthorityOpen: false, lpLockStatus: "unknown", holderTopPct: null, holderTop10Pct: null, creatorAddress: null, ruggedCreator: false, knownRuggedDeployer: false, sprayCount24h: 0, rugcheckScore: null, symbolConflict: false, deepScanApplied: false, flags: ["بيانات أمان غير متاحة"], checkedAt: Date.now() };
+  return { baseAddress: candidate.baseAddress, pairAddress: candidate.pairAddress, symbol: candidate.symbol, source: "RugCheck", status: "unavailable", mintAuthorityOpen: false, freezeAuthorityOpen: false, lpLockStatus: "unknown", holderTopPct: null, holderTop10Pct: null, creatorAddress: null, ruggedCreator: false, knownRuggedDeployer: false, sprayCount24h: 0, rugcheckScore: null, symbolConflict: false, deepScanApplied: false, holderClusterScore: null, bundleDetected: null, washTradingScore: null, fundingSourceOverlap: null, token2022Flags: [], lpBurnVerified: null, flags: ["بيانات أمان غير متاحة"], checkedAt: Date.now() };
 }
 
 function estimateSlippage(tradeUsd: number, liquidityUsd: number) { if (liquidityUsd <= 0) return null; return round((tradeUsd / (liquidityUsd / 2 + tradeUsd)) * 100); }
