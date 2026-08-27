@@ -84,22 +84,33 @@
 - [x] تصحيح مسار ملفات الواجهة في الإنتاج من dist/_core/public إلى dist/public والتحقق من استجابة الخادم.
 - [x] إعادة إنشاء ملف ZIP بعد إصلاحات package.json وserver/_core/vite.ts ثم فحصه مجدداً قبل تسليمه كأحدث نسخة.
 - [x] إعادة نشر خدمة الويب على Render والتحقق من نجاح startup probe الأساسي والرابط الحي HTTP 200؛ بقيت عمليات قاعدة البيانات بحاجة إلى إصلاح المنطقة.
-- [ ] رفع النسخة المحدثة إلى مستودع GitHub بعد تحديد الاسم وموافقة المستخدم على إنشاء المستودع ورفع الملفات.
+- [x] رفع النسخة المحدثة إلى مستودع GitHub بعد تحديد الاسم وموافقة المستخدم على إنشاء المستودع ورفع الملفات.
 - [x] تعديل render.yaml لإزالة preDeployCommand غير المدعوم على خطة Web Free ثم تحديثه في GitHub والتحقق من Blueprint.
 - [x] تحويل Drizzle وطبقة الاتصال وعمليات القفل والـ upsert إلى PostgreSQL المتوافق مع Render.
 - [x] إنشاء baseline PostgreSQL جديد مع عزل ترحيلات MySQL القديمة، وتشغيل pnpm test وpnpm check وpnpm build بنجاح.
-- [ ] تجهيز قاعدة MySQL/TiDB خارجية أو رابط DATABASE_URL صالح قبل نشر Web وWorker على Render؛ خطة Render المدفوعة لا تنشئ قاعدة تلقائياً.
+- [x] تجهيز قاعدة MySQL/TiDB خارجية أو رابط DATABASE_URL صالح قبل نشر Web وWorker على Render؛ استُبدل هذا المسار بقاعدة Render PostgreSQL المُدارة.
 - [x] نقل قاعدة البيانات إلى PostgreSQL المُدارة داخل Render وتحديث Drizzle وBlueprint بدلاً من الاعتماد على TiDB الخارجي.
 - [x] فحص Workspace وتأكيد وجود قاعدة Render PostgreSQL الحالية sol-forge-pro-db؛ لا حذف أو تعديل للقاعدة القائمة.
 - [x] إعادة مزامنة Blueprint باستخدام قاعدة Render الحالية sol-forge-pro-db دون حذفها؛ تعذر الوصول الداخلي لأن الخدمات القديمة لم تنتقل فعلياً إلى Ohio.
-- [ ] فتح حساب TiDB Cloud وإنشاء قاعدة Serverless مجانية متوافقة مع MySQL؛ يتطلب إدخال المستخدم بيانات الحساب عند طلبها.
+- [x] فتح حساب TiDB Cloud وإنشاء قاعدة Serverless مجانية متوافقة مع MySQL؛ أُلغي هذا المسار بعد اعتماد PostgreSQL داخل Render.
 - [x] إصلاح فشل Corepack على Render بسبب توقيع pnpm غير المطابق؛ البناء والنشر ينجحان الآن.
-- [ ] تشغيل Web وWorker وظيفياً مع قاعدة البيانات؛ كلاهما يظهر Live/HTTP 200، لكن سجلات Worker تؤكد ENOTFOUND لقاعدة Ohio بسبب عدم انتقال الخدمات القديمة.
-- [x] إصلاح فشل تشغيل الإنتاج على Render بسبب بقاء alias @shared/_core داخل dist؛ نجح build المحلي وبقي رفعه والتحقق الحي معلقين.
+- [x] تشغيل Web وWorker وظيفياً مع قاعدة البيانات؛ Web يعيد HTTP 200 وWorker ينفذ دورات early discovery وconfirmed scan مع PostgreSQL داخل Ohio.
+- [x] إصلاح فشل تشغيل الإنتاج على Render بسبب بقاء alias @shared/_core داخل dist؛ نجح build المحلي والتحقق الحي.
 - [x] رفع إصلاح runtime إلى GitHub وإعادة نشر Web وWorker؛ Web على https://solana-gem-scanner.onrender.com يعيد HTTP 200 وWorker Live، مع بقاء اتصال قاعدة البيانات معلقاً.
-- [ ] إنشاء Web جديد في Ohio باسم solana-gem-scanner-ohio مع إبقاء Web القديم دون حذف أثناء الاختبار.
-- [ ] إنشاء Worker جديد في Ohio باسم solana-gem-scanner-worker-ohio مع إبقاء Worker القديم دون حذف أثناء الاختبار.
-- [ ] التحقق من اتصال الخدمتين الجديدتين بقاعدة sol-forge-pro-db وعدم ظهور ENOTFOUND في السجلات.
+- [x] إنشاء Web جديد في Ohio باسم solana-gem-scanner-ohio مع إبقاء Web القديم دون حذف أثناء الاختبار.
+- [x] إنشاء Worker جديد في Ohio باسم solana-gem-scanner-worker-ohio مع إبقاء Worker القديم دون حذف أثناء الاختبار.
+- [x] التحقق من اتصال الخدمتين الجديدتين بقاعدة sol-forge-pro-db وعدم ظهور ENOTFOUND في السجلات.
 - [ ] بعد نجاح التحقق فقط، عرض خيار حذف الخدمات القديمة للمستخدم دون تنفيذ الحذف تلقائياً.
-- [ ] تشخيص سبب فشل upsert في scannerRunLocks على قاعدة Render بعد نجاح إنشاء الخدمات الجديدة في Ohio، ثم إصلاحه وإعادة التحقق من دورة العامل.
-- [ ] إصلاح تهيئة جدول scannerRunLocks في Worker Ohio عندما لا يكون مخطط قاعدة Render متزامناً، ثم التحقق من دورة فحص ناجحة.
+- [x] تشخيص سبب فشل upsert في scannerRunLocks على قاعدة Render بعد نجاح إنشاء الخدمات الجديدة في Ohio، ثم إصلاحه وإعادة التحقق من دورة العامل.
+- [x] إصلاح تهيئة جدول scannerRunLocks في Worker Ohio عندما لا يكون مخطط قاعدة Render متزامناً، ثم التحقق من دورة فحص ناجحة.
+- [x] إكمال ربط GitHub وRender للنسخة الأخيرة والتحقق من أن Render يبني من commit الإصلاح.
+- [x] التحقق من وجود TELEGRAM_BOT_TOKEN وTELEGRAM_CHAT_ID في خدمة Worker دون كشف القيم.
+- [x] اختبار Telegram الفعلي والتنبيه العربي بعد نجاح دورة الفحص، مع إبقاء التطبيق للقراءة فقط.
+- [x] التحقق النهائي من Web UI والبيانات الحية وتحديث البنود التشغيلية القديمة المتجاوزة.
+- [x] ضمان تطبيق مخطط PostgreSQL عند بدء خدمات Render بعد توفر DATABASE_URL، وليس أثناء البناء فقط.
+- [x] استبدال db:push التفاعلي بتهيئة PostgreSQL حتمية وآمنة تنشئ جميع جداول المخطط المطلوبة، ثم إعادة اختبار Worker وواجهة Web.
+- [x] معالجة اختلاف إعداد SSL المحلي دون التأثير على اتصال Render PostgreSQL.
+- [x] إعادة التحقق من وجود متغيري Telegram في Worker من صفحة Environment أو عبر سلوك التشغيل، دون إظهار القيم في السجل أو الملفات.
+- [x] إثبات تنبيه Telegram صادر من دورة Worker في Render بعد نجاح الفحص، عبر سجل الإرسال أو سجل PostgreSQL، دون إدخال بيانات سوق مصطنعة.
+- [x] تصحيح سبب Telegram HTTP 401 في Worker بعد إعادة النشر، والتحقق من إرسال تنبيه حقيقي من Render دون كشف الأسرار.
+- [x] تشخيص خطأ SSL المحلي الظاهر في سجل dev server: البيئة المحلية ما زالت تحقن مضيف TiDB القديم، بينما Render يستخدم PostgreSQL؛ لم يُعدّل كود الإنتاج لأن المشكلة إعداد بيئة اختبار وليست خللاً في Render.

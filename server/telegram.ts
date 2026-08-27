@@ -47,9 +47,13 @@ async function deliverTelegram(text: string): Promise<TelegramDelivery> {
 }
 
 export async function sendTelegramAlert(candidate: ScoredCandidate, alertType: TelegramAlertType = "threshold"): Promise<TelegramDelivery> {
-  return deliverTelegram(formatAlert(candidate, alertType));
+  const delivery = await deliverTelegram(formatAlert(candidate, alertType));
+  console.info(`[Telegram] ${alertType} ${delivery.status}: ${delivery.detail}`);
+  return delivery;
 }
 
 export async function sendTelegramEarlyWatch(watch: EarlyWatch): Promise<TelegramDelivery> {
-  return deliverTelegram(formatEarlyWatch(watch));
+  const delivery = await deliverTelegram(formatEarlyWatch(watch));
+  console.info(`[Telegram] early_watch ${delivery.status}: ${delivery.detail}`);
+  return delivery;
 }

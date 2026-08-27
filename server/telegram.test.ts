@@ -20,7 +20,9 @@ describe("sendTelegramAlert", () => {
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-token"); vi.stubEnv("TELEGRAM_CHAT_ID", "123");
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
     vi.stubGlobal("fetch", fetchMock);
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined);
     await expect(sendTelegramAlert(candidate)).resolves.toEqual({ status: "sent", detail: "تم إرسال تنبيه تيليجرام" });
+    expect(infoSpy).toHaveBeenCalledWith("[Telegram] threshold sent: تم إرسال تنبيه تيليجرام");
     expect(fetchMock).toHaveBeenCalledWith("https://api.telegram.org/bottest-token/sendMessage", expect.objectContaining({ method: "POST" }));
     expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain("ليست توصية شراء أو بيع");
   });

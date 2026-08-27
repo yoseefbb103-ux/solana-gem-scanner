@@ -9,7 +9,7 @@ services:
     name: solana-gem-scanner-ohio
     plan: free
     region: ohio
-    buildCommand: npm install -g pnpm@10.4.1 && pnpm install --frozen-lockfile && pnpm build && pnpm db:push
+    buildCommand: npm install -g pnpm@10.4.1 && pnpm install --frozen-lockfile && pnpm build
     startCommand: pnpm start
     healthCheckPath: /
     autoDeployTrigger: commit
@@ -33,7 +33,7 @@ services:
     name: solana-gem-scanner-worker-ohio
     plan: starter
     region: ohio
-    buildCommand: npm install -g pnpm@10.4.1 && pnpm install --frozen-lockfile && pnpm build && pnpm db:push
+    buildCommand: npm install -g pnpm@10.4.1 && pnpm install --frozen-lockfile && pnpm build
     startCommand: pnpm start:worker
     autoDeployTrigger: commit
     envVars:

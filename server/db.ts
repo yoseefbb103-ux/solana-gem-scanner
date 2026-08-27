@@ -7,6 +7,22 @@ import { ENV } from './_core/env';
 let _db: ReturnType<typeof drizzle> | null = null;
 let _pool: Pool | null = null;
 
+function poolOptions(databaseUrl: string) {
+  try {
+    const parsed = new URL(databaseUrl);
+    const sslMode = parsed.searchParams.get("sslmode");
+    const localHost = ["localhost", "127.0.0.1", "0.0.0.0"].includes(parsed.hostname);
+    if (localHost && sslMode !== "verify-ca" && sslMode !== "verify-full") {
+      parsed.searchParams.delete("sslmode");
+      return { connectionString: parsed.toString(), ssl: undefined };
+    }
+    const useSsl = sslMode !== "disable" && (sslMode === "require" || sslMode === "verify-ca" || sslMode === "verify-full" || parsed.hostname.endsWith("render.com"));
+    return { connectionString: databaseUrl, ssl: useSsl ? { rejectUnauthorized: false } : undefined };
+  } catch {
+    return { connectionString: databaseUrl, ssl: databaseUrl.includes("render.com") ? { rejectUnauthorized: false } : undefined };
+  }
+}
+
 // Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db) {
@@ -16,7 +32,7 @@ export async function getDb() {
       return null;
     }
     try {
-      _pool = new Pool({ connectionString: databaseUrl, ssl: databaseUrl.includes("render.com") ? { rejectUnauthorized: false } : undefined });
+      _pool = new Pool(poolOptions(databaseUrl));
       await _pool.query("SELECT 1");
       _db = drizzle(_pool);
     } catch (error) {
