@@ -11,6 +11,7 @@ const MARKET_CACHE_TTL_MS = 45_000;
 const EARLY_DISCOVERY_CACHE_TTL_MS = 15_000;
 const EARLY_DISCOVERY_PROFILE_LIMIT = 12;
 const EARLY_DISCOVERY_MIN_LIQUIDITY_USD = 1_000;
+const MAX_PAIR_FETCH_CONCURRENCY = 8;
 const DISCOVERY_PATHS = [
   { path: "/token-profiles/latest/v1", source: "ملفات حديثة" },
   { path: "/token-profiles/recent-updates/v1", source: "ملفات محدّثة" },
@@ -22,6 +23,25 @@ let cachedMarket: { value: MarketFetchResult; expiresAt: number } | null = null;
 let pendingMarketFetch: Promise<MarketFetchResult> | null = null;
 let cachedEarlyDiscovery: { value: MarketFetchResult; expiresAt: number } | null = null;
 let pendingEarlyDiscovery: Promise<MarketFetchResult> | null = null;
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  async function consume() {
+    while (true) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      results[index] = await worker(items[index]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, consume));
+  return results;
+}
+
+function profilePriority(profile: ProfileWithSource) {
+  const metadata = Number(Boolean(profile.icon)) + Number(Boolean(profile.description)) + Number(Boolean(profile.links?.length));
+  return profile.sources.size * 10 + metadata;
+}
 
 export function resetSourceCache() {
   cachedMarket = null;
@@ -97,11 +117,11 @@ async function fetchLatestSolanaMarketUncached(): Promise<MarketFetchResult> {
     } catch { /* Optional discovery streams retain failure only in telemetry. */ }
   }));
   if (!collected.size) throw new Error("تعذر الحصول على مرشحين من مصادر DEX Screener العامة");
-  const profiles = Array.from(collected.values()).slice(0, 64);
-  const pairGroups = await Promise.all(profiles.map(async (profile) => {
+  const profiles = Array.from(collected.values()).sort((left, right) => profilePriority(right) - profilePriority(left)).slice(0, 64);
+  const pairGroups = await mapWithConcurrency(profiles, MAX_PAIR_FETCH_CONCURRENCY, async (profile) => {
     try { return { profile, pairs: await dexFetch<DexScreenerPair[]>(`/token-pairs/v1/solana/${profile.tokenAddress}`, telemetry) }; }
     catch { return { profile, pairs: [] as DexScreenerPair[] }; }
-  }));
+  });
   const byAddress = new Map<string, TokenCandidate>();
   for (const { profile, pairs } of pairGroups) {
     const solanaPairs = pairs.filter((pair) => pair.chainId === "solana" && pair.pairAddress);
@@ -135,10 +155,10 @@ async function fetchEarlySolanaDiscoveryUncached(): Promise<MarketFetchResult> {
     .filter((profile) => profile.chainId === "solana" && profile.tokenAddress)
     .slice(0, Math.min(EARLY_DISCOVERY_PROFILE_LIMIT * 2, 24))
     .map((profile) => ({ ...profile, sources: new Set(["رصد مبكر: ملفات حديثة"]) }));
-  const pairGroups = await Promise.all(solanaProfiles.map(async (profile) => {
+  const pairGroups = await mapWithConcurrency(solanaProfiles, MAX_PAIR_FETCH_CONCURRENCY, async (profile) => {
     try { return { profile, pairs: await dexFetch<DexScreenerPair[]>(`/token-pairs/v1/solana/${profile.tokenAddress}`, telemetry) }; }
     catch { return { profile, pairs: [] as DexScreenerPair[] }; }
-  }));
+  });
   const candidates = new Map<string, TokenCandidate>();
   for (const { profile, pairs } of pairGroups) {
     const solanaPairs = pairs.filter((pair) => pair.chainId === "solana" && pair.pairAddress);

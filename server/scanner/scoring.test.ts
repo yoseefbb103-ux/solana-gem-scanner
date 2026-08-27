@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyFilters, scoreCandidate, unavailableSecurity } from "./scoring";
+import { applyFilters, getGemGateFailures, scoreCandidate, unavailableSecurity } from "./scoring";
 import type { TokenCandidate } from "./types";
 
 const baseline: TokenCandidate = {
@@ -17,6 +17,18 @@ describe("Solana scanner scoring", () => {
     expect(scored.factors.length).toBeGreaterThan(2);
   });
 
+  it("explains multi-source discovery without letting it dominate the score", () => {
+    const scored = scoreCandidate({ ...baseline, discoverySources: ["ملفات حديثة", "ملفات محدّثة"] });
+    expect(scored.factors).toContain("ظهر عبر أكثر من قناة اكتشاف عامة");
+    expect(scored.opportunityScore).toBeLessThanOrEqual(100);
+  });
+
+  it("does not treat boost-only discovery as independent quality evidence", () => {
+    const scored = scoreCandidate({ ...baseline, discoverySources: ["تعزيزات حديثة", "تعزيزات بارزة"] });
+    expect(scored.warnings).toContain("الظهور عبر التعزيزات فقط ليس دليلاً مستقلاً على جودة التوكن");
+    expect(scored.riskScore).toBeGreaterThan(scoreCandidate(baseline).riskScore);
+  });
+
   it("raises warnings and risk for thin, volatile, very new pairs", () => {
     const scored = scoreCandidate({ ...baseline, liquidityUsd: 900, volumeH1: 7_000, transactionsH1: 18, buysH1: 17, sellsH1: 1, priceChangeM5: 20, priceChangeH1: 70, pairCreatedAt: Date.now() - 20 * 60_000 });
     expect(scored.riskScore).toBeGreaterThan(60);
@@ -30,6 +42,14 @@ describe("Solana scanner scoring", () => {
     const scored = scoreCandidate(strongCandidate, undefined, passedSecurity, { jupiterChecked: true, jupiterPriceUsd: strongCandidate.priceUsd });
     expect(scored.signalTier).toBe("confirmed");
     expect(scored.decision).toBe("monitor");
+  });
+
+  it("returns explicit gate failures for a candidate that must not alert", () => {
+    const scored = scoreCandidate({ ...baseline, liquidityUsd: 900, volumeH1: 100 });
+    const failures = getGemGateFailures(scored, { opportunityAlertThreshold: 62, riskAlertThreshold: 35 });
+    expect(failures).toContain("فحص الأمان غير مارّ");
+    expect(failures).toContain("السيولة أقل من الحد الأدنى");
+    expect(failures).toContain("حجم الساعة أقل من الحد الأدنى");
   });
 
   it("never promotes a dangerous candidate even when its opportunity score is high", () => {

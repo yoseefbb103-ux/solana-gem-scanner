@@ -41,6 +41,26 @@ describe("DEX Screener market cache", () => {
     expect(global.fetch).toHaveBeenCalledTimes(5);
   });
 
+  it("يحد توازي جلب الأزواج حتى لا يضغط على المصدر العام", async () => {
+    let activePairRequests = 0;
+    let maxPairRequests = 0;
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes("token-pairs")) {
+        activePairRequests += 1;
+        maxPairRequests = Math.max(maxPairRequests, activePairRequests);
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        activePairRequests -= 1;
+        const address = url.split("/").at(-1) ?? "mint";
+        return { ok: true, status: 200, json: async () => [{ chainId: "solana", pairAddress: `pair-${address}`, baseToken: { address, symbol: address, name: address }, dexId: "raydium", priceUsd: "0.1", liquidity: { usd: 20_000 }, volume: { h1: 2_000, h24: 5_000 }, txns: { h1: { buys: 10, sells: 8 } }, priceChange: { m5: 1, h1: 2, h6: 3, h24: 4 }, pairCreatedAt: Date.now() }] };
+      }
+      const offset = url.includes("recent-updates") ? 6 : url.includes("token-boosts/latest") ? 12 : url.includes("token-boosts/top") ? 18 : 0;
+      return { ok: true, status: 200, json: async () => Array.from({ length: 6 }, (_, index) => ({ chainId: "solana", tokenAddress: `mint-${offset + index}` })) };
+    }) as typeof fetch;
+    const result = await fetchLatestSolanaMarket();
+    expect(result.candidates).toHaveLength(24);
+    expect(maxPairRequests).toBeLessThanOrEqual(8);
+  });
+
   it("يرفض روابط الصور غير الآمنة القادمة من المصدر العام", async () => {
     global.fetch = vi.fn().mockImplementation(async (url: string) => {
       if (url.includes("token-pairs")) return { ok: true, status: 200, json: async () => [{ chainId: "solana", pairAddress: "pairA", baseToken: { address: "mintA", symbol: "TEST", name: "Test" }, info: { imageUrl: "http://insecure.example.com/test.png" }, dexId: "raydium", priceUsd: "0.1", liquidity: { usd: 10_000 }, volume: { h1: 1_000, h24: 2_000 }, txns: { h1: { buys: 3, sells: 2 } }, priceChange: { m5: 1, h1: 2, h6: 3, h24: 4 }, pairCreatedAt: Date.now() }] };

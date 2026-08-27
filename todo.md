@@ -146,3 +146,13 @@
 
 ## History / User feedback
 - [x] User requested Telegram to show only selected gems in a professional, non-noisy format; no profit guarantees or automatic trading claims are allowed.
+
+
+## تطوير نظام اكتشاف الجواهر — 2026-08-28
+- [x] تدقيق مصادر الاكتشاف الحالية وحدودها وتوثيق معايير الجودة الواقعية.
+- [x] تصميم مراحل اكتشاف مبكر وفرز أمان ونشاط وتأكيد قبل التنبيه.
+- [x] تنفيذ بوابات رفض الإشارات الكاذبة، قياس الثقة، التبريد، ومنع التكرار.
+- [x] تحسين تفسير الجوهرة في الواجهة وTelegram دون وعود ربح أو توصية استثمارية.
+- [x] إضافة اختبارات للمحرك الجديد وتشغيل pnpm test وpnpm check وpnpm build.
+- [x] رفع التطوير إلى GitHub والتحقق من Web وWorker Ohio على آخر commit: GitHub `191da9b` وRender Ohio Web وWorker بحالة Live.
+- [x] تشخيص سجل فشل WebDev القديم الذي يشير إلى dist/index.js: إعدادات GitHub/Render الصحيحة تستخدم `dist/_core/index.js`، والفشل القديم خارج مسار التسليم المعتمد.

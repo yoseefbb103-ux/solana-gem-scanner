@@ -1,4 +1,4 @@
-import { applyFilters, scoreCandidates, type CandidateSignals } from "./scoring";
+import { applyFilters, getGemGateFailures, scoreCandidates, type CandidateSignals } from "./scoring";
 import { randomUUID } from "node:crypto";
 import { inspectOnchainSecurity } from "./onchain";
 import { fetchSecurityReport } from "./security";
@@ -51,6 +51,22 @@ export type EarlyDiscoveryRun = {
   sourceTelemetry: { throttled: boolean; slowRequestCount: number; errorCount: number; latestStatus: number | null; maxLatencyMs: number };
 };
 
+const MAX_SECURITY_CONCURRENCY = 6;
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  async function consume() {
+    while (true) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      results[index] = await worker(items[index]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, consume));
+  return results;
+}
+
 const isSymbolConflict = (address: string, symbol: string, knownSymbols: Map<string, Set<string>>) => {
   const addresses = knownSymbols.get(symbol.trim().toUpperCase());
   return Boolean(addresses && addresses.size > 0 && !addresses.has(address));
@@ -59,12 +75,12 @@ const isSymbolConflict = (address: string, symbol: string, knownSymbols: Map<str
 async function assessSecurity(candidates: Awaited<ReturnType<typeof fetchLatestSolanaMarket>>["candidates"], knownSymbols: Map<string, Set<string>>, deepScanLimit: number, recentPairs: Set<string>) {
   const preliminaryReports = new Map<string, SecurityReport>();
   const processable = candidates.filter((candidate) => !recentPairs.has(candidate.pairAddress));
-  const reports = await Promise.all(processable.map(async (candidate) => [candidate.baseAddress, await fetchSecurityReport(candidate, isSymbolConflict(candidate.baseAddress, candidate.symbol, knownSymbols), false)] as const));
+  const reports = await mapWithConcurrency(processable, MAX_SECURITY_CONCURRENCY, async (candidate) => [candidate.baseAddress, await fetchSecurityReport(candidate, isSymbolConflict(candidate.baseAddress, candidate.symbol, knownSymbols), false)] as const);
   for (const [address, report] of reports) preliminaryReports.set(address, report);
   const preScored = scoreCandidates(candidates, new Map(), preliminaryReports).filter((candidate) => candidate.security.status !== "flagged").sort((left, right) => right.opportunityScore - left.opportunityScore);
   const effectiveDeepScanLimit = process.env.HELIUS_API_KEY || process.env.SOLANA_RPC_URL ? deepScanLimit : Math.min(deepScanLimit, 2);
   const deepAddresses = new Set(preScored.slice(0, effectiveDeepScanLimit).map((candidate) => candidate.baseAddress));
-  const deepReports = await Promise.all(candidates.filter((candidate) => deepAddresses.has(candidate.baseAddress)).map(async (candidate) => {
+  const deepReports = await mapWithConcurrency(candidates.filter((candidate) => deepAddresses.has(candidate.baseAddress)), MAX_SECURITY_CONCURRENCY, async (candidate) => {
     const report = await fetchSecurityReport(candidate, isSymbolConflict(candidate.baseAddress, candidate.symbol, knownSymbols), true);
     const onchain = await inspectOnchainSecurity(candidate, report.lpMintAddresses);
     return [candidate.baseAddress, {
@@ -80,7 +96,7 @@ async function assessSecurity(candidates: Awaited<ReturnType<typeof fetchLatestS
       lpBurnVerified: onchain.lpBurnVerified,
       flags: Array.from(new Set([...report.flags, ...onchain.flags])),
     }] as const;
-  }));
+  });
   for (const [address, report] of deepReports) preliminaryReports.set(address, report);
   const creators = Array.from(new Set(Array.from(preliminaryReports.values()).map((report) => report.creatorAddress).filter((value): value is string => Boolean(value))));
   const [knownDeployers, sprayCounts] = await Promise.all([getKnownRuggedDeployers(creators), getCreatorSprayCounts(creators)]);
@@ -113,7 +129,7 @@ function buildLiquiditySignals(candidates: Awaited<ReturnType<typeof fetchLatest
 }
 
 export function selectThresholdCandidates(candidates: ScoredCandidate[], settings: ScannerSettings) {
-  return candidates.filter((candidate) => (candidate.signalTier === "strong" || candidate.signalTier === "confirmed") && candidate.decision === "monitor" && candidate.opportunityScore >= settings.opportunityAlertThreshold && candidate.riskScore <= settings.riskAlertThreshold);
+  return candidates.filter((candidate) => getGemGateFailures(candidate, settings).length === 0);
 }
 
 async function recordCandidateAlerts(candidates: ScoredCandidate[], eligibleForThreshold: ScoredCandidate[], settings: ScannerSettings, _previousDecisions: Map<string, ScoredCandidate["decision"]>) {
