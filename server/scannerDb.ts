@@ -1,5 +1,5 @@
 import { and, desc, eq, gte, inArray, lte } from "drizzle-orm";
-import { alertEvents, filterSettings, performanceCheckpoints, scannerSettings, scannerSnapshots, scanRuns, securityReports, sourceHealthEvents, watchlist } from "../drizzle/schema";
+import { alertEvents, filterSettings, knownRuggedDeployers, performanceCheckpoints, scannerSettings, scannerSnapshots, scanRuns, securityReports, sourceHealthEvents, watchlist } from "../drizzle/schema";
 import { getDb } from "./db";
 import { DEFAULT_FILTERS, DEFAULT_SCANNER_SETTINGS, type ScanFilters, type ScannerSettings, type ScoredCandidate, type SecurityReport, type SourceTelemetry } from "./scanner/types";
 
@@ -28,7 +28,7 @@ function mapSecurity(row: typeof securityReports.$inferSelect): SecurityReport {
     baseAddress: row.baseAddress, pairAddress: row.pairAddress, symbol: row.symbol, source: row.source, status: row.status,
     mintAuthorityOpen: row.mintAuthorityOpen, freezeAuthorityOpen: row.freezeAuthorityOpen, lpLockStatus: row.lpLockStatus,
     holderTopPct: num(row.holderTopPct), holderTop10Pct: num(row.holderTop10Pct), creatorAddress: row.creatorAddress,
-    ruggedCreator: row.ruggedCreator, rugcheckScore: num(row.rugcheckScore), symbolConflict: row.symbolConflict,
+    ruggedCreator: row.ruggedCreator, knownRuggedDeployer: row.knownRuggedDeployer, sprayCount24h: row.sprayCount24h, rugcheckScore: num(row.rugcheckScore), symbolConflict: row.symbolConflict,
     deepScanApplied: row.deepScanApplied, flags: parseJsonArray(row.flagsJson), checkedAt: row.checkedAt.getTime(),
   };
 }
@@ -62,6 +62,52 @@ export async function getRecentlyProcessedPairAddresses(windowMinutes = 1) {
   const threshold = new Date(Date.now() - windowMinutes * 60_000);
   const rows = await db.select({ pairAddress: scannerSnapshots.pairAddress }).from(scannerSnapshots).where(gte(scannerSnapshots.fetchedAt, threshold)).limit(500);
   return new Set(rows.map((row) => row.pairAddress));
+}
+
+export async function getCandidateHistory(addresses: string[]) {
+  const db = await getDb();
+  const history = new Map<string, { liquidityUsd: number; decision: ScoredCandidate["decision"]; fetchedAt: number }[]>();
+  if (!db || !addresses.length) return history;
+  const threshold = new Date(Date.now() - 20 * 60_000);
+  const rows = await db.select({ baseAddress: scannerSnapshots.baseAddress, liquidityUsd: scannerSnapshots.liquidityUsd, decision: scannerSnapshots.decision, fetchedAt: scannerSnapshots.fetchedAt }).from(scannerSnapshots).where(and(inArray(scannerSnapshots.baseAddress, addresses), gte(scannerSnapshots.fetchedAt, threshold))).orderBy(desc(scannerSnapshots.fetchedAt)).limit(1000);
+  for (const row of rows) {
+    const records = history.get(row.baseAddress) ?? [];
+    records.push({ liquidityUsd: Number(row.liquidityUsd), decision: row.decision, fetchedAt: row.fetchedAt.getTime() });
+    history.set(row.baseAddress, records);
+  }
+  return history;
+}
+
+export async function rememberRuggedDeployer(creatorAddress: string) {
+  const db = await getDb();
+  if (!db) return;
+  const [existing] = await db.select().from(knownRuggedDeployers).where(eq(knownRuggedDeployers.creatorAddress, creatorAddress)).limit(1);
+  if (existing) {
+    await db.update(knownRuggedDeployers).set({ lastSeenAt: new Date(), hitCount: existing.hitCount + 1 }).where(eq(knownRuggedDeployers.id, existing.id));
+  } else {
+    await db.insert(knownRuggedDeployers).values({ creatorAddress });
+  }
+}
+
+export async function getKnownRuggedDeployers(addresses: string[]) {
+  const db = await getDb();
+  const found = new Map<string, number>();
+  if (!db || !addresses.length) return found;
+  const rows = await db.select().from(knownRuggedDeployers).where(inArray(knownRuggedDeployers.creatorAddress, addresses));
+  for (const row of rows) found.set(row.creatorAddress, row.firstSeenAt.getTime());
+  return found;
+}
+
+export async function getCreatorSprayCounts(addresses: string[]) {
+  const db = await getDb();
+  const counts = new Map<string, number>();
+  if (!db || !addresses.length) return counts;
+  const threshold = new Date(Date.now() - 24 * 60 * 60_000);
+  const rows = await db.select({ creatorAddress: securityReports.creatorAddress, baseAddress: securityReports.baseAddress }).from(securityReports).where(and(inArray(securityReports.creatorAddress, addresses), gte(securityReports.checkedAt, threshold))).limit(3000);
+  const tokensByCreator = new Map<string, Set<string>>();
+  for (const row of rows) if (row.creatorAddress) { const tokens = tokensByCreator.get(row.creatorAddress) ?? new Set<string>(); tokens.add(row.baseAddress); tokensByCreator.set(row.creatorAddress, tokens); }
+  for (const [creator, tokens] of Array.from(tokensByCreator.entries())) counts.set(creator, tokens.size);
+  return counts;
 }
 
 export async function getScannerSettings(): Promise<ScannerSettings> {
@@ -110,7 +156,9 @@ export async function storeScan(input: StoreScanInput) {
     dexId: candidate.dexId, sourceUrl: candidate.sourceUrl, priceUsd: candidate.priceUsd, liquidityUsd: candidate.liquidityUsd,
     volumeH1: candidate.volumeH1, volumeH24: candidate.volumeH24, transactionsH1: candidate.transactionsH1, priceChangeM5: candidate.priceChangeM5,
     priceChangeH1: candidate.priceChangeH1, pairCreatedAt: candidate.pairCreatedAt ? new Date(candidate.pairCreatedAt) : null,
-    opportunityScore: candidate.opportunityScore, riskScore: candidate.riskScore, scoreDelta: candidate.scoreDelta,
+    opportunityScore: candidate.opportunityScore, riskScore: candidate.riskScore, scoreDelta: candidate.scoreDelta, decision: candidate.decision,
+    liquidityDeltaPct: candidate.liquidityDeltaPct, liquidityPullDetected: candidate.liquidityPullDetected, liquidityGrowthStable: candidate.liquidityGrowthStable,
+    liquidDexCount: candidate.liquidDexCount, metadataCompleteness: candidate.metadataCompleteness, jupiterPriceUsd: candidate.jupiterPriceUsd, priceDivergencePct: candidate.priceDivergencePct,
     factorsJson: JSON.stringify(candidate.factors), warningsJson: JSON.stringify(candidate.warnings), fetchedAt: input.fetchedAt,
   })));
   await db.insert(securityReports).values(input.candidates.map((candidate) => ({
@@ -118,7 +166,7 @@ export async function storeScan(input: StoreScanInput) {
     source: candidate.security.source, status: candidate.security.status, mintAuthorityOpen: candidate.security.mintAuthorityOpen,
     freezeAuthorityOpen: candidate.security.freezeAuthorityOpen, lpLockStatus: candidate.security.lpLockStatus,
     holderTopPct: candidate.security.holderTopPct, holderTop10Pct: candidate.security.holderTop10Pct, creatorAddress: candidate.security.creatorAddress,
-    ruggedCreator: candidate.security.ruggedCreator, rugcheckScore: candidate.security.rugcheckScore, symbolConflict: candidate.security.symbolConflict,
+    ruggedCreator: candidate.security.ruggedCreator, knownRuggedDeployer: candidate.security.knownRuggedDeployer, sprayCount24h: candidate.security.sprayCount24h, rugcheckScore: candidate.security.rugcheckScore, symbolConflict: candidate.security.symbolConflict,
     deepScanApplied: candidate.security.deepScanApplied, flagsJson: JSON.stringify(candidate.security.flags), checkedAt: new Date(candidate.security.checkedAt),
   })));
   return { scanId, persisted: true };
@@ -142,7 +190,9 @@ export async function getLatestDashboard() {
       priceUsd: num(row.priceUsd), liquidityUsd: Number(row.liquidityUsd), volumeH1: Number(row.volumeH1), volumeH24: Number(row.volumeH24),
       transactionsH1: row.transactionsH1, buysH1: 0, sellsH1: 0, priceChangeM5: Number(row.priceChangeM5), priceChangeH1: Number(row.priceChangeH1), priceChangeH6: 0, priceChangeH24: 0,
       pairCreatedAt: toDateMs(row.pairCreatedAt), ageHours: row.pairCreatedAt ? Math.round(((Date.now() - row.pairCreatedAt.getTime()) / 3_600_000) * 10) / 10 : null,
-      opportunityScore: Number(row.opportunityScore), riskScore: Number(row.riskScore), scoreDelta: Number(row.scoreDelta), factors: parseJsonArray(row.factorsJson), warnings: parseJsonArray(row.warningsJson),
+      opportunityScore: Number(row.opportunityScore), riskScore: Number(row.riskScore), scoreDelta: Number(row.scoreDelta), decision: row.decision,
+      liquidityDeltaPct: num(row.liquidityDeltaPct), liquidityPullDetected: row.liquidityPullDetected, liquidityGrowthStable: row.liquidityGrowthStable,
+      liquidDexCount: row.liquidDexCount, metadataCompleteness: row.metadataCompleteness, jupiterPriceUsd: num(row.jupiterPriceUsd), priceDivergencePct: num(row.priceDivergencePct), discoverySources: [], factors: parseJsonArray(row.factorsJson), warnings: parseJsonArray(row.warningsJson),
       security: securityByAddress.get(row.baseAddress) ?? null,
     })),
   };
@@ -245,16 +295,16 @@ export async function wasRecentlyAlerted(baseAddress: string, cooldownMinutes: n
   return Boolean(event);
 }
 
-export async function recordInAppAlert(candidate: ScoredCandidate, detail: string) {
+export async function recordInAppAlert(candidate: ScoredCandidate, detail: string, alertType: "threshold" | "liquidity_pull" | "decision_flip" = "threshold") {
   const db = await getDb();
   if (!db) return;
-  await db.insert(alertEvents).values({ baseAddress: candidate.baseAddress, symbol: candidate.symbol, opportunityScore: candidate.opportunityScore, riskScore: candidate.riskScore, channel: "in_app", deliveryStatus: "sent", detail });
+  await db.insert(alertEvents).values({ baseAddress: candidate.baseAddress, symbol: candidate.symbol, opportunityScore: candidate.opportunityScore, riskScore: candidate.riskScore, channel: "in_app", alertType, deliveryStatus: "sent", detail });
 }
 
-export async function recordTelegramAlert(candidate: ScoredCandidate, deliveryStatus: "sent" | "skipped" | "failed", detail: string) {
+export async function recordTelegramAlert(candidate: ScoredCandidate, deliveryStatus: "sent" | "skipped" | "failed", detail: string, alertType: "threshold" | "liquidity_pull" | "decision_flip" = "threshold") {
   const db = await getDb();
   if (!db) return;
-  await db.insert(alertEvents).values({ baseAddress: candidate.baseAddress, symbol: candidate.symbol, opportunityScore: candidate.opportunityScore, riskScore: candidate.riskScore, channel: "telegram", deliveryStatus, detail });
+  await db.insert(alertEvents).values({ baseAddress: candidate.baseAddress, symbol: candidate.symbol, opportunityScore: candidate.opportunityScore, riskScore: candidate.riskScore, channel: "telegram", alertType, deliveryStatus, detail });
 }
 
 export async function getRecentAlerts() {

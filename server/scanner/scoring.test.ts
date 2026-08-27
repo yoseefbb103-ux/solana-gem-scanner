@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { applyFilters, scoreCandidate } from "./scoring";
+import { applyFilters, scoreCandidate, unavailableSecurity } from "./scoring";
 import type { TokenCandidate } from "./types";
 
 const baseline: TokenCandidate = {
   pairAddress: "pair", baseAddress: "token", symbol: "TEST", name: "Test Token", dexId: "raydium", sourceUrl: "https://example.com",
   priceUsd: 0.01, liquidityUsd: 75_000, volumeH1: 20_000, volumeH24: 120_000, transactionsH1: 130, buysH1: 75, sellsH1: 55,
-  priceChangeM5: 3, priceChangeH1: 12, pairCreatedAt: Date.now() - 5 * 3_600_000,
+  priceChangeM5: 3, priceChangeH1: 12, priceChangeH6: 8, priceChangeH24: 4, pairCreatedAt: Date.now() - 5 * 3_600_000,
+  discoverySources: ["ملفات حديثة"], liquidDexCount: 1, metadataCompleteness: 0,
 };
 
 describe("Solana scanner scoring", () => {
@@ -29,5 +30,26 @@ describe("Solana scanner scoring", () => {
     const result = applyFilters([safe, risky], { minLiquidity: 10_000, minVolume: 5_000, maxAgeHours: 48, maxRisk: 40 });
     expect(result).toHaveLength(1);
     expect(result[0]?.baseAddress).toBe("token");
+  });
+
+  it("forces avoid and a critical warning when liquidity falls sharply between scans", () => {
+    const scored = scoreCandidate(baseline, undefined, undefined, { liquidityDeltaPct: -48, liquidityPullDetected: true });
+    expect(scored.decision).toBe("avoid");
+    expect(scored.riskScore).toBeGreaterThanOrEqual(65);
+    expect(scored.warnings.some((warning) => warning.includes("سحب سيولة"))).toBe(true);
+  });
+
+  it("adds a manual-review warning when Jupiter materially differs from DEX price", () => {
+    const scored = scoreCandidate(baseline, undefined, undefined, { jupiterChecked: true, jupiterPriceUsd: 0.02 });
+    expect(scored.priceDivergencePct).toBe(50);
+    expect(scored.warnings.some((warning) => warning.includes("تعارض في السعر"))).toBe(true);
+  });
+
+  it("treats known rugged deployers and rapid spray patterns as explicit risk", () => {
+    const flaggedSecurity = { ...unavailableSecurity(baseline), status: "passed" as const, knownRuggedDeployer: true, sprayCount24h: 3, flags: ["الناشر مرتبط برَقّ سابق"] };
+    const scored = scoreCandidate(baseline, undefined, flaggedSecurity);
+    expect(scored.decision).toBe("avoid");
+    expect(scored.riskScore).toBeGreaterThanOrEqual(50);
+    expect(scored.warnings.some((warning) => warning.includes("نمط رش"))).toBe(true);
   });
 });

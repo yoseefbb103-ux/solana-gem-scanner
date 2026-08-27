@@ -2,11 +2,11 @@ import type { ScoredCandidate } from "./scanner/types";
 
 type TelegramDelivery = { status: "sent" | "skipped" | "failed"; detail: string };
 
-function formatAlert(candidate: ScoredCandidate) {
+function formatAlert(candidate: ScoredCandidate, alertType: "threshold" | "liquidity_pull" | "decision_flip") {
   const factors = candidate.factors.slice(0, 3).map((factor) => `• ${factor}`).join("\n") || "• لا توجد عوامل إيجابية كافية";
   const warnings = candidate.warnings.slice(0, 3).map((warning) => `• ${warning}`).join("\n") || "• لا توجد تحذيرات آلية إضافية";
   return [
-    "SOLANA SIGNAL SCANNER — قراءة فقط",
+    alertType === "liquidity_pull" ? "تحذير عاجل: احتمال سحب سيولة" : alertType === "decision_flip" ? "تحذير عاجل: انقلاب قرار الإشارة" : "SOLANA SIGNAL SCANNER — قراءة فقط",
     `${candidate.symbol} | فرصة ${candidate.opportunityScore.toFixed(1)}/100 | مخاطرة ${candidate.riskScore.toFixed(1)}/100`,
     "العوامل:", factors,
     "التحذيرات:", warnings,
@@ -15,7 +15,7 @@ function formatAlert(candidate: ScoredCandidate) {
   ].join("\n");
 }
 
-export async function sendTelegramAlert(candidate: ScoredCandidate): Promise<TelegramDelivery> {
+export async function sendTelegramAlert(candidate: ScoredCandidate, alertType: "threshold" | "liquidity_pull" | "decision_flip" = "threshold"): Promise<TelegramDelivery> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) return { status: "skipped", detail: "تنبيهات تيليجرام غير مهيأة" };
@@ -23,7 +23,7 @@ export async function sendTelegramAlert(candidate: ScoredCandidate): Promise<Tel
     const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text: formatAlert(candidate), disable_web_page_preview: true }),
+      body: JSON.stringify({ chat_id: chatId, text: formatAlert(candidate, alertType), disable_web_page_preview: true }),
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) return { status: "failed", detail: `Telegram HTTP ${response.status}` };

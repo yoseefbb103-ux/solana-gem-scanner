@@ -44,6 +44,14 @@ export const scannerSnapshots = mysqlTable("scannerSnapshots", {
   opportunityScore: float("opportunityScore").notNull(),
   riskScore: float("riskScore").notNull(),
   scoreDelta: float("scoreDelta").notNull().default(0),
+  decision: mysqlEnum("decision", ["monitor", "caution", "avoid"]).notNull().default("caution"),
+  liquidityDeltaPct: float("liquidityDeltaPct"),
+  liquidityPullDetected: boolean("liquidityPullDetected").notNull().default(false),
+  liquidityGrowthStable: boolean("liquidityGrowthStable").notNull().default(false),
+  liquidDexCount: int("liquidDexCount").notNull().default(1),
+  metadataCompleteness: int("metadataCompleteness").notNull().default(0),
+  jupiterPriceUsd: float("jupiterPriceUsd"),
+  priceDivergencePct: float("priceDivergencePct"),
   factorsJson: text("factorsJson").notNull(),
   warningsJson: text("warningsJson").notNull(),
   fetchedAt: timestamp("fetchedAt").defaultNow().notNull(),
@@ -69,6 +77,8 @@ export const securityReports = mysqlTable("securityReports", {
   holderTop10Pct: float("holderTop10Pct"),
   creatorAddress: varchar("creatorAddress", { length: 80 }),
   ruggedCreator: boolean("ruggedCreator").notNull().default(false),
+  knownRuggedDeployer: boolean("knownRuggedDeployer").notNull().default(false),
+  sprayCount24h: int("sprayCount24h").notNull().default(0),
   rugcheckScore: float("rugcheckScore"),
   symbolConflict: boolean("symbolConflict").notNull().default(false),
   deepScanApplied: boolean("deepScanApplied").notNull().default(false),
@@ -79,6 +89,15 @@ export const securityReports = mysqlTable("securityReports", {
   index("security_reports_scan_run_idx").on(table.scanRunId),
   index("security_reports_checked_at_idx").on(table.checkedAt),
 ]);
+
+export const knownRuggedDeployers = mysqlTable("knownRuggedDeployers", {
+  id: int("id").autoincrement().primaryKey(),
+  creatorAddress: varchar("creatorAddress", { length: 80 }).notNull().unique(),
+  firstSeenAt: timestamp("firstSeenAt").defaultNow().notNull(),
+  lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
+  hitCount: int("hitCount").notNull().default(1),
+  source: varchar("source", { length: 80 }).notNull().default("RugCheck"),
+}, (table) => [index("known_rugged_deployers_last_seen_idx").on(table.lastSeenAt)]);
 
 export const sourceHealthEvents = mysqlTable("sourceHealthEvents", {
   id: int("id").autoincrement().primaryKey(),
@@ -147,6 +166,7 @@ export const alertEvents = mysqlTable("alertEvents", {
   opportunityScore: float("opportunityScore").notNull(),
   riskScore: float("riskScore").notNull(),
   channel: mysqlEnum("channel", ["in_app", "telegram"]).notNull(),
+  alertType: mysqlEnum("alertType", ["threshold", "liquidity_pull", "decision_flip"]).notNull().default("threshold"),
   deliveryStatus: mysqlEnum("deliveryStatus", ["queued", "sent", "skipped", "failed"]).notNull(),
   detail: text("detail"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

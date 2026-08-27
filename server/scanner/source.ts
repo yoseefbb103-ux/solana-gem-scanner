@@ -1,8 +1,18 @@
 import type { DexScreenerPair, MarketFetchResult, SourceTelemetry, TokenCandidate } from "./types";
 
-type TokenProfile = { chainId?: string; tokenAddress?: string; url?: string };
+type TokenProfile = { chainId?: string; tokenAddress?: string; url?: string; icon?: string | null; description?: string | null; links?: { type?: string; label?: string; url?: string }[] | null };
+type ProfileWithSource = TokenProfile & { sources: Set<string> };
+type JupiterTokenPrice = { usdPrice?: number };
+export type JupiterPrices = { prices: Map<string, number>; unavailableAddresses: Set<string>; status: number | null };
 
 const API_BASE = "https://api.dexscreener.com";
+const JUPITER_PRICE_URL = "https://api.jup.ag/price/v3";
+const DISCOVERY_PATHS = [
+  { path: "/token-profiles/latest/v1", source: "ملفات حديثة" },
+  { path: "/token-profiles/recent-updates/v1", source: "ملفات محدّثة" },
+  { path: "/token-boosts/latest/v1", source: "تعزيزات حديثة" },
+  { path: "/token-boosts/top/v1", source: "تعزيزات بارزة" },
+] as const;
 
 async function dexFetch<T>(path: string, telemetry: SourceTelemetry): Promise<T> {
   const startedAt = Date.now();
@@ -14,10 +24,7 @@ async function dexFetch<T>(path: string, telemetry: SourceTelemetry): Promise<T>
     telemetry.maxLatencyMs = Math.max(telemetry.maxLatencyMs, latency);
     if (response.status === 429) telemetry.throttled = true;
     if (latency >= 4_000) telemetry.slowRequestCount += 1;
-    if (!response.ok) {
-      telemetry.errorCount += 1;
-      throw new Error(`تعذر جلب بيانات المصدر (${response.status})`);
-    }
+    if (!response.ok) throw new Error(`تعذر جلب بيانات المصدر (${response.status})`);
     return response.json() as Promise<T>;
   } catch (error) {
     telemetry.errorCount += 1;
@@ -25,7 +32,11 @@ async function dexFetch<T>(path: string, telemetry: SourceTelemetry): Promise<T>
   }
 }
 
-function toCandidate(pair: DexScreenerPair, fallbackUrl?: string): TokenCandidate | null {
+function metadataScore(pair: DexScreenerPair, profile?: TokenProfile) {
+  return Number(Boolean(pair.info?.imageUrl || profile?.icon)) + Number(Boolean(pair.info?.websites?.length || profile?.links?.some((link) => link.type === "website"))) + Number(Boolean(pair.info?.socials?.length || profile?.links?.some((link) => link.type && link.type !== "website")));
+}
+
+function toCandidate(pair: DexScreenerPair, pairs: DexScreenerPair[], profile: ProfileWithSource): TokenCandidate | null {
   const baseAddress = pair.baseToken?.address;
   const pairAddress = pair.pairAddress;
   if (!baseAddress || !pairAddress) return null;
@@ -33,64 +44,67 @@ function toCandidate(pair: DexScreenerPair, fallbackUrl?: string): TokenCandidat
   const buysH1 = Number(h1Tx.buys ?? 0);
   const sellsH1 = Number(h1Tx.sells ?? 0);
   const price = Number(pair.priceUsd);
+  const liquidDexCount = new Set(pairs.filter((item) => item.chainId === "solana" && Number(item.liquidity?.usd ?? 0) >= 5_000).map((item) => item.dexId).filter(Boolean)).size;
   return {
-    pairAddress,
-    baseAddress,
-    symbol: pair.baseToken?.symbol || "?",
-    name: pair.baseToken?.name || pair.baseToken?.symbol || "توكن غير مسمى",
-    dexId: pair.dexId || "غير معروف",
-    sourceUrl: pair.url || fallbackUrl || `https://dexscreener.com/solana/${pairAddress}`,
-    priceUsd: Number.isFinite(price) ? price : null,
-    liquidityUsd: Number(pair.liquidity?.usd ?? 0),
-    volumeH1: Number(pair.volume?.h1 ?? 0),
-    volumeH24: Number(pair.volume?.h24 ?? 0),
-    transactionsH1: buysH1 + sellsH1,
-    buysH1,
-    sellsH1,
-    priceChangeM5: Number(pair.priceChange?.m5 ?? 0),
-    priceChangeH1: Number(pair.priceChange?.h1 ?? 0),
-    priceChangeH6: Number(pair.priceChange?.h6 ?? 0),
-    priceChangeH24: Number(pair.priceChange?.h24 ?? 0),
-    pairCreatedAt: typeof pair.pairCreatedAt === "number" ? pair.pairCreatedAt : null,
+    pairAddress, baseAddress, symbol: pair.baseToken?.symbol || "?", name: pair.baseToken?.name || pair.baseToken?.symbol || "توكن غير مسمى",
+    dexId: pair.dexId || "غير معروف", sourceUrl: pair.url || profile.url || `https://dexscreener.com/solana/${pairAddress}`,
+    priceUsd: Number.isFinite(price) ? price : null, liquidityUsd: Number(pair.liquidity?.usd ?? 0), volumeH1: Number(pair.volume?.h1 ?? 0), volumeH24: Number(pair.volume?.h24 ?? 0),
+    transactionsH1: buysH1 + sellsH1, buysH1, sellsH1, priceChangeM5: Number(pair.priceChange?.m5 ?? 0), priceChangeH1: Number(pair.priceChange?.h1 ?? 0),
+    priceChangeH6: Number(pair.priceChange?.h6 ?? 0), priceChangeH24: Number(pair.priceChange?.h24 ?? 0), pairCreatedAt: typeof pair.pairCreatedAt === "number" ? pair.pairCreatedAt : null,
+    discoverySources: Array.from(profile.sources), liquidDexCount: Math.max(1, liquidDexCount), metadataCompleteness: metadataScore(pair, profile),
   };
 }
 
 export async function fetchLatestSolanaMarket(): Promise<MarketFetchResult> {
   const telemetry: SourceTelemetry = { source: "DEX Screener", requestCount: 0, throttled: false, slowRequestCount: 0, errorCount: 0, latestStatus: null, maxLatencyMs: 0, capturedAt: Date.now() };
-  const profiles = await dexFetch<TokenProfile[]>("/token-profiles/latest/v1", telemetry);
-  const solanaProfiles = profiles
-    .filter((profile) => profile.chainId === "solana" && profile.tokenAddress)
-    .filter((profile, index, all) => all.findIndex((item) => item.tokenAddress === profile.tokenAddress) === index)
-    .slice(0, 20);
-
-  const pairGroups = await Promise.all(solanaProfiles.map(async (profile) => {
+  const collected = new Map<string, ProfileWithSource>();
+  await Promise.all(DISCOVERY_PATHS.map(async ({ path, source }) => {
     try {
-      const pairs = await dexFetch<DexScreenerPair[]>(`/token-pairs/v1/solana/${profile.tokenAddress}`, telemetry);
-      return { profile, pairs };
-    } catch {
-      return { profile, pairs: [] as DexScreenerPair[] };
-    }
+      const profiles = await dexFetch<TokenProfile[]>(path, telemetry);
+      for (const profile of profiles) {
+        if (profile.chainId !== "solana" || !profile.tokenAddress) continue;
+        const current = collected.get(profile.tokenAddress) ?? { ...profile, sources: new Set<string>() };
+        current.sources.add(source);
+        collected.set(profile.tokenAddress, current);
+      }
+    } catch { /* Optional discovery streams retain failure only in telemetry. */ }
   }));
-
+  if (!collected.size) throw new Error("تعذر الحصول على مرشحين من مصادر DEX Screener العامة");
+  const profiles = Array.from(collected.values()).slice(0, 32);
+  const pairGroups = await Promise.all(profiles.map(async (profile) => {
+    try { return { profile, pairs: await dexFetch<DexScreenerPair[]>(`/token-pairs/v1/solana/${profile.tokenAddress}`, telemetry) }; }
+    catch { return { profile, pairs: [] as DexScreenerPair[] }; }
+  }));
   const byAddress = new Map<string, TokenCandidate>();
   for (const { profile, pairs } of pairGroups) {
-    const bestPair = pairs
-      .filter((pair) => pair.chainId === "solana" && pair.pairAddress)
-      .sort((left, right) => Number(right.liquidity?.usd ?? 0) - Number(left.liquidity?.usd ?? 0))[0];
+    const solanaPairs = pairs.filter((pair) => pair.chainId === "solana" && pair.pairAddress);
+    const bestPair = [...solanaPairs].sort((left, right) => Number(right.liquidity?.usd ?? 0) - Number(left.liquidity?.usd ?? 0))[0];
     if (!bestPair) continue;
-    const candidate = toCandidate(bestPair, profile.url);
+    const candidate = toCandidate(bestPair, solanaPairs, profile);
     if (!candidate) continue;
     const existing = byAddress.get(candidate.baseAddress);
     if (!existing || candidate.liquidityUsd > existing.liquidityUsd) byAddress.set(candidate.baseAddress, candidate);
   }
-
   return { candidates: Array.from(byAddress.values()).sort((left, right) => right.liquidityUsd - left.liquidityUsd), telemetry };
 }
 
-export async function fetchLatestSolanaCandidates() {
-  const result = await fetchLatestSolanaMarket();
-  return result.candidates;
+export async function fetchJupiterPrices(addresses: string[]): Promise<JupiterPrices> {
+  const unique = Array.from(new Set(addresses)).slice(0, 50);
+  const unavailableAddresses = new Set(unique);
+  if (!unique.length) return { prices: new Map(), unavailableAddresses, status: null };
+  try {
+    const response = await fetch(`${JUPITER_PRICE_URL}?ids=${encodeURIComponent(unique.join(","))}`, { signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) return { prices: new Map(), unavailableAddresses, status: response.status };
+    const payload = await response.json() as Record<string, JupiterTokenPrice>;
+    const prices = new Map<string, number>();
+    for (const [address, entry] of Object.entries(payload)) {
+      if (typeof entry.usdPrice === "number" && Number.isFinite(entry.usdPrice) && entry.usdPrice > 0) { prices.set(address, entry.usdPrice); unavailableAddresses.delete(address); }
+    }
+    return { prices, unavailableAddresses, status: response.status };
+  } catch { return { prices: new Map(), unavailableAddresses, status: null }; }
 }
+
+export async function fetchLatestSolanaCandidates() { return (await fetchLatestSolanaMarket()).candidates; }
 
 export async function fetchTokenPriceUsd(baseAddress: string): Promise<number | null> {
   const telemetry: SourceTelemetry = { source: "DEX Screener", requestCount: 0, throttled: false, slowRequestCount: 0, errorCount: 0, latestStatus: null, maxLatencyMs: 0, capturedAt: Date.now() };

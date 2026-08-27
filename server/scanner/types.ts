@@ -24,12 +24,15 @@ export type DexScreenerPair = {
   quoteToken?: { address?: string; name?: string; symbol?: string };
   priceUsd?: string; txns?: Record<string, TimeframeTransactions>; volume?: Record<string, number>;
   priceChange?: Record<string, number>; liquidity?: { usd?: number | null }; pairCreatedAt?: number;
+  info?: { imageUrl?: string | null; websites?: { url?: string }[] | null; socials?: { platform?: string; handle?: string }[] | null };
+  labels?: string[] | null;
 };
 
 export type TokenCandidate = {
   pairAddress: string; baseAddress: string; symbol: string; name: string; dexId: string; sourceUrl: string; priceUsd: number | null;
   liquidityUsd: number; volumeH1: number; volumeH24: number; transactionsH1: number; buysH1: number; sellsH1: number;
   priceChangeM5: number; priceChangeH1: number; priceChangeH6: number; priceChangeH24: number; pairCreatedAt: number | null;
+  discoverySources: string[]; liquidDexCount: number; metadataCompleteness: number;
 };
 
 export type SecurityStatus = "passed" | "flagged" | "unavailable";
@@ -39,13 +42,14 @@ export type SecurityReport = {
   baseAddress: string; pairAddress: string; symbol: string; source: string; status: SecurityStatus;
   mintAuthorityOpen: boolean; freezeAuthorityOpen: boolean; lpLockStatus: LpLockStatus;
   holderTopPct: number | null; holderTop10Pct: number | null; creatorAddress: string | null; ruggedCreator: boolean;
-  rugcheckScore: number | null; symbolConflict: boolean; deepScanApplied: boolean; flags: string[]; checkedAt: number;
+  knownRuggedDeployer: boolean; sprayCount24h: number; rugcheckScore: number | null; symbolConflict: boolean; deepScanApplied: boolean; flags: string[]; checkedAt: number;
 };
 
 export type ScoredCandidate = TokenCandidate & {
   ageHours: number | null; opportunityScore: number; riskScore: number; scoreDelta: number;
   factors: string[]; warnings: string[]; security: SecurityReport; decision: "monitor" | "caution" | "avoid";
   estimatedSlippage200: number | null; estimatedSlippage500: number | null; momentumConsistency: "positive" | "mixed" | "negative" | "unknown";
+  jupiterPriceUsd: number | null; priceDivergencePct: number | null; liquidityDeltaPct: number | null; liquidityPullDetected: boolean; liquidityGrowthStable: boolean;
 };
 
 export type SourceTelemetry = {

@@ -1,40 +1,25 @@
 import { DEFAULT_FILTERS, type ScanFilters, type ScoredCandidate, type SecurityReport, type TokenCandidate } from "./types";
 
-const clamp = (value: number, min = 0, max = 100) => Math.max(min, Math.min(max, value));
-const round = (value: number) => Math.round(value * 10) / 10;
-const median = (values: number[]) => {
-  const sorted = [...values].sort((left, right) => left - right);
-  if (!sorted.length) return 0;
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+export type CandidateSignals = {
+  jupiterPriceUsd?: number | null;
+  jupiterChecked?: boolean;
+  liquidityDeltaPct?: number | null;
+  liquidityPullDetected?: boolean;
+  liquidityGrowthStable?: boolean;
 };
 
+const clamp = (value: number, min = 0, max = 100) => Math.max(min, Math.min(max, value));
+const round = (value: number) => Math.round(value * 10) / 10;
+const median = (values: number[]) => { const sorted = [...values].sort((left, right) => left - right); const middle = Math.floor(sorted.length / 2); return sorted.length ? sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2 : 0; };
+
 export function unavailableSecurity(candidate: TokenCandidate): SecurityReport {
-  return {
-    baseAddress: candidate.baseAddress, pairAddress: candidate.pairAddress, symbol: candidate.symbol, source: "RugCheck", status: "unavailable",
-    mintAuthorityOpen: false, freezeAuthorityOpen: false, lpLockStatus: "unknown", holderTopPct: null, holderTop10Pct: null,
-    creatorAddress: null, ruggedCreator: false, rugcheckScore: null, symbolConflict: false, deepScanApplied: false,
-    flags: ["بيانات أمان غير متاحة"], checkedAt: Date.now(),
-  };
+  return { baseAddress: candidate.baseAddress, pairAddress: candidate.pairAddress, symbol: candidate.symbol, source: "RugCheck", status: "unavailable", mintAuthorityOpen: false, freezeAuthorityOpen: false, lpLockStatus: "unknown", holderTopPct: null, holderTop10Pct: null, creatorAddress: null, ruggedCreator: false, knownRuggedDeployer: false, sprayCount24h: 0, rugcheckScore: null, symbolConflict: false, deepScanApplied: false, flags: ["بيانات أمان غير متاحة"], checkedAt: Date.now() };
 }
 
-function estimateSlippage(tradeUsd: number, liquidityUsd: number) {
-  if (liquidityUsd <= 0) return null;
-  const oneSideReserve = liquidityUsd / 2;
-  return round((tradeUsd / (oneSideReserve + tradeUsd)) * 100);
-}
+function estimateSlippage(tradeUsd: number, liquidityUsd: number) { if (liquidityUsd <= 0) return null; return round((tradeUsd / (liquidityUsd / 2 + tradeUsd)) * 100); }
+function momentumConsistency(candidate: TokenCandidate): ScoredCandidate["momentumConsistency"] { const movements = [candidate.priceChangeH1, candidate.priceChangeH6, candidate.priceChangeH24]; const positives = movements.filter((value) => value > 0).length; const negatives = movements.filter((value) => value < 0).length; return !movements.some(Boolean) ? "unknown" : positives >= 2 && candidate.priceChangeH1 > 0 ? "positive" : negatives >= 2 ? "negative" : "mixed"; }
 
-function momentumConsistency(candidate: TokenCandidate): ScoredCandidate["momentumConsistency"] {
-  const movements = [candidate.priceChangeH1, candidate.priceChangeH6, candidate.priceChangeH24];
-  const positives = movements.filter((value) => value > 0).length;
-  const negatives = movements.filter((value) => value < 0).length;
-  if (!movements.some((value) => value !== 0)) return "unknown";
-  if (positives >= 2 && candidate.priceChangeH1 > 0) return "positive";
-  if (negatives >= 2) return "negative";
-  return "mixed";
-}
-
-export function scoreCandidate(candidate: TokenCandidate, previousScore?: number, security: SecurityReport = unavailableSecurity(candidate)): ScoredCandidate {
+export function scoreCandidate(candidate: TokenCandidate, previousScore?: number, security: SecurityReport = unavailableSecurity(candidate), signals: CandidateSignals = {}): ScoredCandidate {
   const ageHours = candidate.pairCreatedAt ? Math.max(0, (Date.now() - candidate.pairCreatedAt) / 3_600_000) : null;
   const factors: string[] = [];
   const warnings = [...security.flags];
@@ -66,43 +51,34 @@ export function scoreCandidate(candidate: TokenCandidate, previousScore?: number
   const slippage200 = estimateSlippage(200, candidate.liquidityUsd);
   const slippage500 = estimateSlippage(500, candidate.liquidityUsd);
   if ((slippage500 ?? 100) > 8) warnings.push("انزلاق تقديري مرتفع لصفقة 500 دولار");
+  const jupiterPriceUsd = signals.jupiterPriceUsd ?? null;
+  const priceDivergencePct = candidate.priceUsd && jupiterPriceUsd ? round(Math.abs(candidate.priceUsd - jupiterPriceUsd) / jupiterPriceUsd * 100) : null;
+  if (signals.jupiterChecked && priceDivergencePct === null) warnings.push("مقارنة السعر مع Jupiter غير متاحة");
+  if (priceDivergencePct !== null && priceDivergencePct > 12) warnings.push("تعارض في السعر بين المصادر، تحقق يدوياً قبل أي قرار");
+  if (candidate.liquidDexCount >= 2) factors.push("سيولة موزعة عبر أكثر من منصة تداول");
+  if (candidate.metadataCompleteness >= 2) factors.push("بيانات وصفية متاحة من المصدر العام");
+  if (signals.liquidityGrowthStable) factors.push("نمو سيولة متسق عبر عدة فحصات");
+  if (signals.liquidityPullDetected) warnings.unshift("احتمال سحب سيولة نشط الآن؛ استبعد من أفضل الآن");
+  if (security.sprayCount24h >= 3) warnings.push("نمط رش: نفس الناشر أطلق عدة توكنات خلال 24 ساعة");
   let risk = 0;
-  risk += clamp((25_000 - candidate.liquidityUsd) / 25_000 * 24, 0, 24);
-  risk += ageHours !== null && ageHours < 1 ? 12 : ageHours !== null && ageHours < 6 ? 6 : 0;
-  risk += absH1 > 35 ? 15 : absH1 > 20 ? 8 : 0;
-  risk += Math.abs(candidate.priceChangeM5) > 12 ? 8 : 0;
-  risk += totalTransactions >= 12 && balance < 0.25 ? 9 : 0;
-  risk += volumeRatio > 5 ? 9 : 0;
-  risk += candidate.volumeH1 < 500 ? 9 : 0;
-  risk += (slippage500 ?? 12) > 8 ? 8 : 0;
-  risk += consistency === "negative" ? 7 : 0;
-  risk += security.mintAuthorityOpen ? 28 : 0;
-  risk += security.freezeAuthorityOpen ? 20 : 0;
-  risk += security.lpLockStatus === "unlocked" ? 24 : 0;
-  risk += security.holderTopPct !== null && security.holderTopPct >= 25 ? 12 : 0;
-  risk += security.holderTop10Pct !== null && security.holderTop10Pct >= 65 ? 10 : 0;
-  risk += security.ruggedCreator ? 22 : 0;
-  risk += security.symbolConflict ? 14 : 0;
-  risk += security.status === "unavailable" ? 4 : 0;
-  const opportunityScore = round(clamp(liquidityScore + volumeScore + ageScore + activityScore + momentumScore + consistencyScore));
+  risk += clamp((25_000 - candidate.liquidityUsd) / 25_000 * 24, 0, 24) + (ageHours !== null && ageHours < 1 ? 12 : ageHours !== null && ageHours < 6 ? 6 : 0) + (absH1 > 35 ? 15 : absH1 > 20 ? 8 : 0) + (Math.abs(candidate.priceChangeM5) > 12 ? 8 : 0) + (totalTransactions >= 12 && balance < 0.25 ? 9 : 0) + (volumeRatio > 5 ? 9 : 0) + (candidate.volumeH1 < 500 ? 9 : 0) + ((slippage500 ?? 12) > 8 ? 8 : 0) + (consistency === "negative" ? 7 : 0);
+  risk += (priceDivergencePct ?? 0) > 12 ? 7 : 0;
+  risk += security.mintAuthorityOpen ? 28 : 0; risk += security.freezeAuthorityOpen ? 20 : 0; risk += security.lpLockStatus === "unlocked" ? 24 : 0;
+  risk += security.holderTopPct !== null && security.holderTopPct >= 25 ? 12 : 0; risk += security.holderTop10Pct !== null && security.holderTop10Pct >= 65 ? 10 : 0;
+  risk += security.ruggedCreator ? 22 : 0; risk += security.knownRuggedDeployer ? 35 : 0; risk += security.sprayCount24h >= 3 ? 18 : 0; risk += security.symbolConflict ? 14 : 0; risk += security.status === "unavailable" ? 4 : 0; risk += signals.liquidityPullDetected ? 65 : 0;
+  const opportunityScore = round(clamp(liquidityScore + volumeScore + ageScore + activityScore + momentumScore + consistencyScore + (candidate.liquidDexCount >= 2 ? 2 : 0) + (candidate.metadataCompleteness >= 2 ? 1 : 0) + (signals.liquidityGrowthStable ? 3 : 0)));
   const riskScore = round(clamp(risk));
-  const decision: ScoredCandidate["decision"] = security.mintAuthorityOpen || security.freezeAuthorityOpen || security.lpLockStatus === "unlocked" || riskScore >= 65
-    ? "avoid" : security.status === "passed" && riskScore <= 28 && opportunityScore >= 55 ? "monitor" : "caution";
-  return {
-    ...candidate, ageHours: ageHours === null ? null : round(ageHours), opportunityScore, riskScore,
-    scoreDelta: round(opportunityScore - (previousScore ?? opportunityScore)), factors, warnings: Array.from(new Set(warnings)), security, decision,
-    estimatedSlippage200: slippage200, estimatedSlippage500: slippage500, momentumConsistency: consistency,
-  };
+  const decision: ScoredCandidate["decision"] = signals.liquidityPullDetected || security.mintAuthorityOpen || security.freezeAuthorityOpen || security.lpLockStatus === "unlocked" || security.knownRuggedDeployer || riskScore >= 65 ? "avoid" : security.status === "passed" && riskScore <= 28 && opportunityScore >= 55 ? "monitor" : "caution";
+  return { ...candidate, ageHours: ageHours === null ? null : round(ageHours), opportunityScore, riskScore, scoreDelta: round(opportunityScore - (previousScore ?? opportunityScore)), factors: Array.from(new Set(factors)), warnings: Array.from(new Set(warnings)), security, decision, estimatedSlippage200: slippage200, estimatedSlippage500: slippage500, momentumConsistency: consistency, jupiterPriceUsd, priceDivergencePct, liquidityDeltaPct: signals.liquidityDeltaPct ?? null, liquidityPullDetected: Boolean(signals.liquidityPullDetected), liquidityGrowthStable: Boolean(signals.liquidityGrowthStable) };
 }
 
-export function scoreCandidates(candidates: TokenCandidate[], previousScores: Map<string, number>, securityByAddress: Map<string, SecurityReport>) {
-  const scored = candidates.map((candidate) => scoreCandidate(candidate, previousScores.get(candidate.baseAddress), securityByAddress.get(candidate.baseAddress)));
+export function scoreCandidates(candidates: TokenCandidate[], previousScores: Map<string, number>, securityByAddress: Map<string, SecurityReport>, signalsByAddress = new Map<string, CandidateSignals>()) {
+  const scored = candidates.map((candidate) => scoreCandidate(candidate, previousScores.get(candidate.baseAddress), securityByAddress.get(candidate.baseAddress), signalsByAddress.get(candidate.baseAddress)));
   const liquidityMedian = median(scored.map((candidate) => candidate.liquidityUsd));
   const volumeMedian = median(scored.map((candidate) => candidate.volumeH1));
   return scored.map((candidate) => {
     const relativeBoost = (candidate.liquidityUsd >= liquidityMedian ? 3 : 0) + (candidate.volumeH1 >= volumeMedian ? 3 : 0);
-    const factors = [...candidate.factors];
-    if (relativeBoost >= 3) factors.push("يتفوق نسبياً على مرشحي الفحص الحاليين");
+    const factors = [...candidate.factors]; if (relativeBoost >= 3) factors.push("يتفوق نسبياً على مرشحي الفحص الحاليين");
     const opportunityScore = round(clamp(candidate.opportunityScore + relativeBoost));
     const decision: ScoredCandidate["decision"] = candidate.decision === "avoid" ? "avoid" : candidate.security.status === "passed" && candidate.riskScore <= 28 && opportunityScore >= 62 ? "monitor" : "caution";
     return { ...candidate, opportunityScore, scoreDelta: round(opportunityScore - (previousScores.get(candidate.baseAddress) ?? opportunityScore)), factors, decision };
@@ -110,11 +86,5 @@ export function scoreCandidates(candidates: TokenCandidate[], previousScores: Ma
 }
 
 export function applyFilters(candidates: ScoredCandidate[], filters: ScanFilters = DEFAULT_FILTERS, strictSecurity = false) {
-  return candidates
-    .filter((candidate) => candidate.liquidityUsd >= filters.minLiquidity)
-    .filter((candidate) => candidate.volumeH1 >= filters.minVolume)
-    .filter((candidate) => candidate.ageHours === null || candidate.ageHours <= filters.maxAgeHours)
-    .filter((candidate) => candidate.riskScore <= filters.maxRisk)
-    .filter((candidate) => !strictSecurity || candidate.decision !== "avoid")
-    .sort((left, right) => right.opportunityScore - left.opportunityScore);
+  return candidates.filter((candidate) => candidate.liquidityUsd >= filters.minLiquidity).filter((candidate) => candidate.volumeH1 >= filters.minVolume).filter((candidate) => candidate.ageHours === null || candidate.ageHours <= filters.maxAgeHours).filter((candidate) => candidate.riskScore <= filters.maxRisk).filter((candidate) => !strictSecurity || candidate.decision !== "avoid").sort((left, right) => right.opportunityScore - left.opportunityScore);
 }

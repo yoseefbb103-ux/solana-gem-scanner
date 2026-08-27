@@ -16,31 +16,9 @@ type RugCheckReport = {
 };
 
 const RUGCHECK_BASE_URL = "https://api.rugcheck.xyz";
-const PUBLIC_SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com";
 const HIGH_RISK_LEVELS = new Set(["danger", "high", "critical"]);
 
 const asNumber = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : null;
-
-async function inspectPublisherHistory(creatorAddress: string | undefined) {
-  if (!creatorAddress) return ["بيانات سجل الناشر غير متاحة: لا يعرض التقرير عنوان ناشر"];
-  try {
-    const response = await fetch(PUBLIC_SOLANA_RPC_URL, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getSignaturesForAddress", params: [creatorAddress, { limit: 20 }] }),
-      signal: AbortSignal.timeout(8_000),
-    });
-    if (!response.ok) throw new Error(`Solana RPC HTTP ${response.status}`);
-    const payload = await response.json() as { error?: { message?: string }; result?: unknown[] };
-    if (payload.error) throw new Error(payload.error.message ?? "Solana RPC error");
-    const signatures = Array.isArray(payload.result) ? payload.result : [];
-    if (signatures.length === 0) return ["سجل الناشر العام محدود: لم تظهر معاملات حديثة ضمن العينة"];
-    return [];
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "تعذر الوصول إلى RPC سولانا";
-    return [`بيانات سجل الناشر غير متاحة: ${message}`];
-  }
-}
 
 function getLpLockStatus(markets: RugCheckMarket[] | undefined): SecurityReport["lpLockStatus"] {
   const values = (markets ?? []).flatMap((market) => {
@@ -80,9 +58,9 @@ export async function fetchSecurityReport(candidate: TokenCandidate, symbolConfl
     if (symbolConflict) flags.push("رمز مطابق لتوكن آخر؛ تحقق من عنوان العقد يدوياً");
     if (deepScanApplied && holderTopPct !== null && holderTopPct >= 25) flags.push("تمركز مرتفع لدى أكبر حائز");
     if (deepScanApplied && holderTop10Pct !== null && holderTop10Pct >= 65) flags.push("تمركز مرتفع لدى أكبر 10 حائزين");
-    if (deepScanApplied && report.rugged) flags.push("عنوان الناشر مرتبط بإشارة RugCheck سلبية");
-    if (deepScanApplied) flags.push(...await inspectPublisherHistory(report.creator));
-    const critical = mintAuthorityOpen || freezeAuthorityOpen || lpLockStatus === "unlocked" || Boolean(report.rugged) || getRugFlags(report.risks).length > 0;
+    const ruggedCreator = Boolean(report.rugged) || (report.risks ?? []).some((risk) => `${risk.name ?? ""} ${risk.description ?? ""}`.toLowerCase().includes("rugged"));
+    if (ruggedCreator) flags.push("تقرير RugCheck يربط الناشر بإشارة رَقّ سلبية");
+    const critical = mintAuthorityOpen || freezeAuthorityOpen || lpLockStatus === "unlocked" || ruggedCreator || getRugFlags(report.risks).length > 0;
     return {
       baseAddress: candidate.baseAddress,
       pairAddress: candidate.pairAddress,
@@ -95,7 +73,9 @@ export async function fetchSecurityReport(candidate: TokenCandidate, symbolConfl
       holderTopPct: deepScanApplied ? holderTopPct : null,
       holderTop10Pct: deepScanApplied ? holderTop10Pct : null,
       creatorAddress: report.creator ?? null,
-      ruggedCreator: deepScanApplied ? Boolean(report.rugged) : false,
+      ruggedCreator,
+      knownRuggedDeployer: false,
+      sprayCount24h: 0,
       rugcheckScore: asNumber(report.score),
       symbolConflict,
       deepScanApplied,
@@ -117,6 +97,8 @@ export async function fetchSecurityReport(candidate: TokenCandidate, symbolConfl
       holderTop10Pct: null,
       creatorAddress: null,
       ruggedCreator: false,
+      knownRuggedDeployer: false,
+      sprayCount24h: 0,
       rugcheckScore: null,
       symbolConflict,
       deepScanApplied,

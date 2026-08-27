@@ -14,9 +14,20 @@
 
 يكون RugCheck هو مصدر الأمان الأساسي للنسخة الأولى. تتعامل طبقة الفحص مع مصدر الأمان بوصفه قابلاً للفشل: يعرض التطبيق "بيانات أمان غير متاحة" عند التعذر، ويستمر في جمع السوق وتخزين اللقطة دون منح علامة أمان إيجابية.
 
+## مقارنة السعر وتوسيع الاكتشاف
+
+توفر Jupiter واجهة `GET https://api.jup.ag/price/v3?ids=<mint[,mint...]>` لسعر USD موحد يمكن طلبه لما يصل إلى 50 عنوان mint في الطلب. الاختبار الحي للمسار العام أعاد `200` دون مفتاح لهذا النطاق؛ مع ذلك سيبقى التكامل متسامحاً مع الفشل لأن وثائق Jupiter تنص على أن التوكنات ذات السعر غير الموثوق قد تُحذف من الاستجابة بالكامل. ستطبق اللوحة المقارنة على أفضل المرشحين الذين اجتازوا الفلتر الأمني الأولي فقط، ولن تعتبر غياب السعر تطابقاً.
+
+توثق DEX Screener مسارات عامة إضافية بلا مفتاح تشمل `GET /token-profiles/recent-updates/v1` و`GET /token-boosts/latest/v1` و`GET /token-boosts/top/v1`، بحد 60 طلباً في الدقيقة لمسارات ملفات التوكنات. ستدمج اللوحة ملفات التوكنات الجديدة والمحدثة والمعززة عبر عنوان mint ثم تستدعي أزواج التوكنات كما في المصدر الأساسي؛ لا يرفع وجود Boost درجة الفرصة بذاته لأنه مدفوع لتوسيع الظهور وليس دليلاً مستقلاً على الجودة.
+
+لا توفر استجابة أزواج DEX Screener حقل تخرج أو هجرة موثقاً يربط زوج Raydium تلقائياً بمنحنى Pump.fun سابق. يمكن قراءة `dexId` و`pairCreatedAt` فقط، وهما غير كافيين لإثبات الانتقال. لذلك لن تضيف اللوحة عامل "تخرج Pump.fun إلى Raydium" اعتماداً على DEX Screener وحده؛ سيظل هذا قيداً موثقاً حتى يتاح مصدر هجرة موثوق ومستقل.
+
 ## المصادر
 
 - https://api.rugcheck.xyz/swagger/index.html
 - https://docs.gopluslabs.io/reference/api-overview
 - https://docs.gopluslabs.io/reference/solanatokensecurityusingget
 - https://core.telegram.org/bots/api#sendmessage
+- https://dev.jup.ag/docs/price
+- https://docs.dexscreener.com/api/reference
+- https://docs.dexscreener.com/boosting
