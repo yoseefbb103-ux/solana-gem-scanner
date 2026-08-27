@@ -24,6 +24,21 @@ describe("Solana scanner scoring", () => {
     expect(scored.warnings).toContain("حركة سعرية حادة");
   });
 
+  it("classifies a passed, well-priced high-quality candidate as confirmed", () => {
+    const strongCandidate = { ...baseline, liquidityUsd: 220_000, volumeH1: 100_000, volumeH24: 500_000, transactionsH1: 320, buysH1: 170, sellsH1: 150, priceChangeM5: 4, priceChangeH1: 18, priceChangeH6: 11, priceChangeH24: 7 };
+    const passedSecurity = { ...unavailableSecurity(strongCandidate), status: "passed" as const, lpLockStatus: "locked" as const };
+    const scored = scoreCandidate(strongCandidate, undefined, passedSecurity, { jupiterChecked: true, jupiterPriceUsd: strongCandidate.priceUsd });
+    expect(scored.signalTier).toBe("confirmed");
+    expect(scored.decision).toBe("monitor");
+  });
+
+  it("never promotes a dangerous candidate even when its opportunity score is high", () => {
+    const dangerousSecurity = { ...unavailableSecurity(baseline), status: "passed" as const, mintAuthorityOpen: true };
+    const scored = scoreCandidate(baseline, undefined, dangerousSecurity, { jupiterChecked: true, jupiterPriceUsd: baseline.priceUsd });
+    expect(scored.signalTier).toBe("avoid");
+    expect(scored.decision).toBe("avoid");
+  });
+
   it("applies liquidity, age, volume, and risk filters deterministically", () => {
     const safe = scoreCandidate(baseline);
     const risky = scoreCandidate({ ...baseline, baseAddress: "risky", liquidityUsd: 500, priceChangeH1: 90, pairCreatedAt: Date.now() - 10 * 60_000 });

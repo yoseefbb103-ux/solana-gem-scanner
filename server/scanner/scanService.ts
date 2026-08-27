@@ -112,6 +112,10 @@ function buildLiquiditySignals(candidates: Awaited<ReturnType<typeof fetchLatest
   return signals;
 }
 
+export function selectThresholdCandidates(candidates: ScoredCandidate[], settings: ScannerSettings) {
+  return candidates.filter((candidate) => (candidate.signalTier === "strong" || candidate.signalTier === "confirmed") && candidate.decision === "monitor" && candidate.opportunityScore >= settings.opportunityAlertThreshold && candidate.riskScore <= settings.riskAlertThreshold);
+}
+
 async function recordCandidateAlerts(candidates: ScoredCandidate[], eligibleForThreshold: ScoredCandidate[], settings: ScannerSettings, previousDecisions: Map<string, ScoredCandidate["decision"]>) {
   const urgent = candidates.filter((candidate) => candidate.liquidityPullDetected || ((previousDecisions.get(candidate.baseAddress) === "monitor" || previousDecisions.get(candidate.baseAddress) === "caution") && candidate.decision === "avoid"));
   for (const candidate of urgent) {
@@ -121,7 +125,7 @@ async function recordCandidateAlerts(candidates: ScoredCandidate[], eligibleForT
     const delivery = await sendTelegramAlert(candidate, alertType);
     await recordTelegramAlert(candidate, delivery.status, delivery.detail, alertType);
   }
-  const matches = eligibleForThreshold.filter((candidate) => candidate.decision === "monitor" && candidate.opportunityScore >= settings.opportunityAlertThreshold && candidate.riskScore <= settings.riskAlertThreshold);
+  const matches = selectThresholdCandidates(eligibleForThreshold, settings);
   for (const candidate of matches) {
     if (!candidate.liquidityPullDetected && !await wasRecentlyAlerted(candidate.baseAddress, settings.cooldownMinutes)) {
       await recordInAppAlert(candidate, `إشارة تجاوزت العتبات المخصصة؛ الفحص للقراءة فقط وليس توصية تداول.`);

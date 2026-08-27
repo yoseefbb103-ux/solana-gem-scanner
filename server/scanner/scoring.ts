@@ -77,7 +77,9 @@ export function scoreCandidate(candidate: TokenCandidate, previousScore?: number
   const opportunityScore = round(clamp(liquidityScore + volumeScore + ageScore + activityScore + momentumScore + consistencyScore + (candidate.liquidDexCount >= 2 ? 2 : 0) + (candidate.metadataCompleteness >= 2 ? 1 : 0) + (signals.liquidityGrowthStable ? 3 : 0)));
   const riskScore = round(clamp(risk));
   const decision: ScoredCandidate["decision"] = signals.liquidityPullDetected || security.mintAuthorityOpen || security.freezeAuthorityOpen || security.lpLockStatus === "unlocked" || security.knownRuggedDeployer || riskScore >= 65 ? "avoid" : security.status === "passed" && riskScore <= 28 && opportunityScore >= 55 ? "monitor" : "caution";
-  return { ...candidate, ageHours: ageHours === null ? null : round(ageHours), opportunityScore, riskScore, scoreDelta: round(opportunityScore - (previousScore ?? opportunityScore)), factors: Array.from(new Set(factors)), warnings: Array.from(new Set(warnings)), security, decision, estimatedSlippage200: slippage200, estimatedSlippage500: slippage500, momentumConsistency: consistency, jupiterPriceUsd, priceDivergencePct, liquidityDeltaPct: signals.liquidityDeltaPct ?? null, liquidityPullDetected: Boolean(signals.liquidityPullDetected), liquidityGrowthStable: Boolean(signals.liquidityGrowthStable) };
+  const hasReliablePriceCheck = signals.jupiterChecked === true && jupiterPriceUsd !== null && priceDivergencePct !== null && priceDivergencePct <= 12;
+  const signalTier: ScoredCandidate["signalTier"] = decision === "avoid" ? "avoid" : security.status === "passed" && hasReliablePriceCheck && riskScore <= 22 && opportunityScore >= 72 ? "confirmed" : security.status === "passed" && riskScore <= 35 && opportunityScore >= 62 ? "strong" : opportunityScore >= 45 && riskScore <= 55 ? "watch" : "avoid";
+  return { ...candidate, ageHours: ageHours === null ? null : round(ageHours), opportunityScore, riskScore, scoreDelta: round(opportunityScore - (previousScore ?? opportunityScore)), factors: Array.from(new Set(factors)), warnings: Array.from(new Set(warnings)), security, decision, signalTier, estimatedSlippage200: slippage200, estimatedSlippage500: slippage500, momentumConsistency: consistency, jupiterPriceUsd, priceDivergencePct, liquidityDeltaPct: signals.liquidityDeltaPct ?? null, liquidityPullDetected: Boolean(signals.liquidityPullDetected), liquidityGrowthStable: Boolean(signals.liquidityGrowthStable) };
 }
 
 export function scoreCandidates(candidates: TokenCandidate[], previousScores: Map<string, number>, securityByAddress: Map<string, SecurityReport>, signalsByAddress = new Map<string, CandidateSignals>()) {
@@ -89,7 +91,9 @@ export function scoreCandidates(candidates: TokenCandidate[], previousScores: Ma
     const factors = [...candidate.factors]; if (relativeBoost >= 3) factors.push("يتفوق نسبياً على مرشحي الفحص الحاليين");
     const opportunityScore = round(clamp(candidate.opportunityScore + relativeBoost));
     const decision: ScoredCandidate["decision"] = candidate.decision === "avoid" ? "avoid" : candidate.security.status === "passed" && candidate.riskScore <= 28 && opportunityScore >= 62 ? "monitor" : "caution";
-    return { ...candidate, opportunityScore, scoreDelta: round(opportunityScore - (previousScores.get(candidate.baseAddress) ?? opportunityScore)), factors, decision };
+    const hasReliablePriceCheck = candidate.jupiterPriceUsd !== null && candidate.priceDivergencePct !== null && candidate.priceDivergencePct <= 12;
+    const signalTier: ScoredCandidate["signalTier"] = decision === "avoid" ? "avoid" : candidate.security.status === "passed" && hasReliablePriceCheck && candidate.riskScore <= 22 && opportunityScore >= 72 ? "confirmed" : candidate.security.status === "passed" && candidate.riskScore <= 35 && opportunityScore >= 62 ? "strong" : opportunityScore >= 45 && candidate.riskScore <= 55 ? "watch" : "avoid";
+    return { ...candidate, opportunityScore, scoreDelta: round(opportunityScore - (previousScores.get(candidate.baseAddress) ?? opportunityScore)), factors, decision, signalTier };
   });
 }
 

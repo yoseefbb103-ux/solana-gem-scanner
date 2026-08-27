@@ -50,7 +50,7 @@ export type SecurityReport = {
 
 export type ScoredCandidate = TokenCandidate & {
   ageHours: number | null; opportunityScore: number; riskScore: number; scoreDelta: number;
-  factors: string[]; warnings: string[]; security: SecurityReport; decision: "monitor" | "caution" | "avoid";
+  factors: string[]; warnings: string[]; security: SecurityReport; decision: "monitor" | "caution" | "avoid"; signalTier: "confirmed" | "strong" | "watch" | "avoid";
   estimatedSlippage200: number | null; estimatedSlippage500: number | null; momentumConsistency: "positive" | "mixed" | "negative" | "unknown";
   jupiterPriceUsd: number | null; priceDivergencePct: number | null; liquidityDeltaPct: number | null; liquidityPullDetected: boolean; liquidityGrowthStable: boolean;
 };

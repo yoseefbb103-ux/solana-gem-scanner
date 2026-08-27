@@ -97,7 +97,7 @@ async function fetchLatestSolanaMarketUncached(): Promise<MarketFetchResult> {
     } catch { /* Optional discovery streams retain failure only in telemetry. */ }
   }));
   if (!collected.size) throw new Error("تعذر الحصول على مرشحين من مصادر DEX Screener العامة");
-  const profiles = Array.from(collected.values()).slice(0, 32);
+  const profiles = Array.from(collected.values()).slice(0, 64);
   const pairGroups = await Promise.all(profiles.map(async (profile) => {
     try { return { profile, pairs: await dexFetch<DexScreenerPair[]>(`/token-pairs/v1/solana/${profile.tokenAddress}`, telemetry) }; }
     catch { return { profile, pairs: [] as DexScreenerPair[] }; }
@@ -133,7 +133,7 @@ async function fetchEarlySolanaDiscoveryUncached(): Promise<MarketFetchResult> {
   const profiles = await dexFetch<TokenProfile[]>("/token-profiles/latest/v1", telemetry);
   const solanaProfiles = profiles
     .filter((profile) => profile.chainId === "solana" && profile.tokenAddress)
-    .slice(0, EARLY_DISCOVERY_PROFILE_LIMIT)
+    .slice(0, Math.min(EARLY_DISCOVERY_PROFILE_LIMIT * 2, 24))
     .map((profile) => ({ ...profile, sources: new Set(["رصد مبكر: ملفات حديثة"]) }));
   const pairGroups = await Promise.all(solanaProfiles.map(async (profile) => {
     try { return { profile, pairs: await dexFetch<DexScreenerPair[]>(`/token-pairs/v1/solana/${profile.tokenAddress}`, telemetry) }; }

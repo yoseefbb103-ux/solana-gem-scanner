@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { excludePromotedFromThreshold, selectConfirmedCandidates } from "./scanService";
+import { excludePromotedFromThreshold, selectConfirmedCandidates, selectThresholdCandidates } from "./scanService";
 import type { ScoredCandidate } from "./types";
 
 function candidate(overrides: Partial<ScoredCandidate> = {}): ScoredCandidate {
@@ -24,6 +24,15 @@ describe("confirmed alert gates", () => {
     const pull = candidate({ baseAddress: "pull", liquidityPullDetected: true });
 
     expect(selectConfirmedCandidates([qualified, missingPrice, divergent, pull])).toEqual([qualified]);
+  });
+
+  it("يرسل threshold للمرشحين strong وconfirmed فقط", () => {
+    const strong = candidate({ baseAddress: "strong", signalTier: "strong" });
+    const confirmed = candidate({ baseAddress: "confirmed", signalTier: "confirmed" });
+    const watch = candidate({ baseAddress: "watch", signalTier: "watch" });
+    const caution = candidate({ baseAddress: "caution", signalTier: "avoid", decision: "caution" });
+    const settings = { strictSecurity: true, opportunityAlertThreshold: 72, riskAlertThreshold: 28, cooldownMinutes: 120, deepScanLimit: 8 };
+    expect(selectThresholdCandidates([strong, confirmed, watch, caution], settings).map((item) => item.baseAddress)).toEqual(["strong", "confirmed"]);
   });
 
   it("يستبعد المرشح المرقّى من مجموعة تنبيه threshold كي لا تتكرر الرسالة", () => {

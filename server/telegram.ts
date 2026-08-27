@@ -19,13 +19,14 @@ function formatAlert(candidate: ScoredCandidate, alertType: TelegramAlertType): 
   const factors = candidate.factors.slice(0, 3).map((factor) => `• ${factor}`).join("\n") || "• لا توجد عوامل إيجابية كافية";
   const warnings = candidate.warnings.slice(0, 3).map((warning) => `• ${warning}`).join("\n") || "• لا توجد تحذيرات آلية إضافية";
   const heading = alertType === "liquidity_pull" ? "تحذير عاجل: احتمال سحب سيولة" : alertType === "decision_flip" ? "تحذير عاجل: انقلاب قرار الإشارة" : alertType === "confirmed_alert" ? "CONFIRMED ALERT — اجتازت بوابات الأمان والسيولة والتسعير" : "جوهرة مرشحة — قراءة فقط";
+  const tier = candidate.signalTier === "confirmed" ? "مؤكد" : candidate.signalTier === "strong" ? "قوي" : candidate.signalTier === "watch" ? "مراقبة" : "تجنب";
   const age = candidate.ageHours === null ? "غير متاح" : `${candidate.ageHours.toFixed(1)} ساعة`;
   const security = candidate.security.status === "passed" ? "اجتاز" : candidate.security.status === "flagged" ? "تحذيرات" : "غير متاح";
   const text = [
     heading,
     "━━━━━━━━━━━━━━━━",
     `العملة: ${candidate.name} (${candidate.symbol})`,
-    `الفرصة: ${candidate.opportunityScore.toFixed(1)}/100 | المخاطرة: ${candidate.riskScore.toFixed(1)}/100`,
+    `مستوى الإشارة: ${tier} | الفرصة: ${candidate.opportunityScore.toFixed(1)}/100 | المخاطرة: ${candidate.riskScore.toFixed(1)}/100`,
     `السعر: ${formatPrice(candidate.priceUsd)}$ | السيولة: ${formatMoney(candidate.liquidityUsd)}`,
     `حجم الساعة: ${formatMoney(candidate.volumeH1)} | المعاملات: ${candidate.transactionsH1.toLocaleString("en-US")}`,
     `عمر الزوج: ${age} | فحص الأمان: ${security}`,
