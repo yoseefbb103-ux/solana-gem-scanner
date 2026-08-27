@@ -35,13 +35,37 @@ export async function acquireScannerRunLock(lockToken: string) {
   if (!db) throw new Error("تعذر تأمين الفحص لأن قاعدة البيانات غير متاحة.");
   const lockedAt = new Date();
   const expiresAt = new Date(lockedAt.getTime() - SCANNER_LOCK_TTL_MS);
-  await db.insert(scannerRunLocks).values({ scopeKey: SCANNER_LOCK_SCOPE, lockToken, lockedAt }).onConflictDoUpdate({
+  const upsertLock = () => db.insert(scannerRunLocks).values({ scopeKey: SCANNER_LOCK_SCOPE, lockToken, lockedAt }).onConflictDoUpdate({
     target: scannerRunLocks.scopeKey,
     set: {
       lockToken: sql`CASE WHEN ${scannerRunLocks.lockedAt} < ${expiresAt} THEN ${lockToken} ELSE ${scannerRunLocks.lockToken} END`,
       lockedAt: sql`CASE WHEN ${scannerRunLocks.lockedAt} < ${expiresAt} THEN ${lockedAt} ELSE ${scannerRunLocks.lockedAt} END`,
     },
   });
+  try {
+    await upsertLock();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const rawCause = error && typeof error === "object" && "cause" in error ? (error as { cause?: unknown }).cause : undefined;
+    const causeMessage = rawCause instanceof Error ? rawCause.message : String(rawCause ?? "");
+    const diagnostic = `${message} ${causeMessage}`;
+    const missingLockTable = diagnostic.includes('relation "scannerRunLocks" does not exist') || diagnostic.includes("scannerRunLocks");
+    if (missingLockTable) {
+      try {
+        await db.execute(sql`CREATE TABLE IF NOT EXISTS public."scannerRunLocks" ("scopeKey" varchar(64) PRIMARY KEY, "lockToken" varchar(80) NOT NULL, "lockedAt" timestamp NOT NULL DEFAULT now())`);
+        console.info("[Scanner Lock] ensured PostgreSQL table public.scannerRunLocks");
+        await upsertLock();
+      } catch (bootstrapError) {
+        const bootstrapMessage = bootstrapError instanceof Error ? bootstrapError.message : String(bootstrapError);
+        console.error(`[Scanner Lock] bootstrap failed: ${bootstrapMessage}`);
+        throw bootstrapError;
+      }
+    } else {
+      const cause = causeMessage ? ` cause=${causeMessage}` : "";
+      console.error(`[Scanner Lock] PostgreSQL upsert failed: ${message}${cause}`);
+      throw error;
+    }
+  }
   const [activeLock] = await db.select().from(scannerRunLocks).where(eq(scannerRunLocks.scopeKey, SCANNER_LOCK_SCOPE)).limit(1);
   if (!activeLock || activeLock.lockToken !== lockToken) throw new Error(SCANNER_LOCKED_MESSAGE);
 }
