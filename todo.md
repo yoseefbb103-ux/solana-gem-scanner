@@ -126,7 +126,7 @@
 - [x] تصميم قالب Telegram احترافي ومرتب لرسائل الجواهر المختارة، مع صورة العملة عند توفر رابط موثوق.
 - [x] إضافة إرسال photo مع caption آمن والرجوع إلى sendMessage إذا تعذر تحميل الصورة أو لم تتوفر.
 - [x] تغطية تنسيق الرسائل والصورة الاحتياطية باختبارات Vitest وتحديث التوثيق.
-- [ ] تشخيص فشل نشر WebDev الأخير الذي ما زال يشغّل `/usr/src/app/dist/index.js` رغم أن package.json يستخدم `dist/_core/index.js`، ثم مزامنة إعداد التشغيل الصحيح والتحقق من health check.
+- [x] تشخيص فشل نشر WebDev الأخير الذي ما زال يشغّل `/usr/src/app/dist/index.js` رغم أن package.json يستخدم `dist/_core/index.js`: ثبت أن الخطأ من نشر WebDev قديم، بينما package.json وrender.yaml الحاليان يشغلان `dist/_core/index.js` وRender Ohio Web/Worker يعملان على d3c4358.
 - [x] مطابقة نسخة Telegram المصوّرة مع GitHub وRender Ohio؛ GitHub main وRender Ohio يستخدمان commit `9c4bb6f` وهو Live.
 - [x] اعتماد GitHub كمصدر الكود وRender Ohio كمصدر النشر الوحيد؛ لا تُسلّم التطويرات عبر معاينة الشات.
 - [x] مزامنة تعديل Telegram المصوّر إلى GitHub ثم إطلاقه على Render Ohio بعد حل رفض الصلاحية 403؛ commit `9c4bb6f` أصبح Live.
