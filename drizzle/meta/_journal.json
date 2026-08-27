@@ -1,54 +1,12 @@
 {
   "version": "7",
-  "dialect": "mysql",
+  "dialect": "postgresql",
   "entries": [
     {
       "idx": 0,
-      "version": "5",
-      "when": 1787787580768,
-      "tag": "0000_easy_bucky",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "5",
-      "when": 1787787947152,
-      "tag": "0001_icy_mesmero",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "5",
-      "when": 1787792125115,
-      "tag": "0002_same_ronan",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "5",
-      "when": 1787795299987,
-      "tag": "0003_tan_wolverine",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "5",
-      "when": 1787798851386,
-      "tag": "0004_flowery_star_brand",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "5",
-      "when": 1787835841019,
-      "tag": "0005_nervous_groot",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "5",
-      "when": 1787837105517,
-      "tag": "0006_sad_colonel_america",
+      "version": "7",
+      "when": 1787846878239,
+      "tag": "0000_fuzzy_robbie_robertson",
       "breakpoints": true
     }
   ]

@@ -85,4 +85,11 @@
 - [x] إعادة إنشاء ملف ZIP بعد إصلاحات package.json وserver/_core/vite.ts ثم فحصه مجدداً قبل تسليمه كأحدث نسخة.
 - [ ] إعادة نشر خدمة الويب على Render والتحقق من نجاح startup probe وتشغيل الخدمة فعلياً.
 - [ ] رفع النسخة المحدثة إلى مستودع GitHub بعد تحديد الاسم وموافقة المستخدم على إنشاء المستودع ورفع الملفات.
-- [ ] تعديل render.yaml لإزالة preDeployCommand غير المدعوم على خطة Web Free ثم تحديثه في GitHub والتحقق من Blueprint.
+- [x] تعديل render.yaml لإزالة preDeployCommand غير المدعوم على خطة Web Free ثم تحديثه في GitHub والتحقق من Blueprint.
+- [x] تحويل Drizzle وطبقة الاتصال وعمليات القفل والـ upsert إلى PostgreSQL المتوافق مع Render.
+- [x] إنشاء baseline PostgreSQL جديد مع عزل ترحيلات MySQL القديمة، وتشغيل pnpm test وpnpm check وpnpm build بنجاح.
+- [ ] تجهيز قاعدة MySQL/TiDB خارجية أو رابط DATABASE_URL صالح قبل نشر Web وWorker على Render؛ خطة Render المدفوعة لا تنشئ قاعدة تلقائياً.
+- [x] نقل قاعدة البيانات إلى PostgreSQL المُدارة داخل Render وتحديث Drizzle وBlueprint بدلاً من الاعتماد على TiDB الخارجي.
+- [x] فحص Workspace وتأكيد وجود قاعدة Render PostgreSQL الحالية sol-forge-pro-db؛ لا حذف أو تعديل للقاعدة القائمة.
+- [ ] إعادة مزامنة Blueprint باستخدام قاعدة Render الحالية sol-forge-pro-db لتجاوز حد قاعدة Free الواحدة دون حذفها.
+- [ ] فتح حساب TiDB Cloud وإنشاء قاعدة Serverless مجانية متوافقة مع MySQL؛ يتطلب إدخال المستخدم بيانات الحساب عند طلبها.

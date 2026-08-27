@@ -82,7 +82,7 @@ git clone https://github.com/YOUR_GITHUB_USERNAME/solana-gem-scanner.git
 cd solana-gem-scanner
 corepack enable
 pnpm install --frozen-lockfile
-export DATABASE_URL='mysql://USER:PASSWORD@HOST:3306/solana_scanner'
+export DATABASE_URL='postgresql://USER:PASSWORD@HOST:5432/solana_scanner'
 export JWT_SECRET='replace-with-a-long-random-secret'
 pnpm drizzle-kit migrate
 pnpm dev
@@ -196,3 +196,8 @@ render.yaml                   خدمتا الويب والعامل في Render
 [11] [PublicNode — Solana RPC Gateway](https://solana.publicnode.com/)
 
 [12] [Solana — Public RPC Endpoint Limits](https://solana.com/docs/references/clusters)
+
+
+### Render Postgres
+
+يستخدم Blueprint قاعدة Render Postgres داخلية ويحقن `DATABASE_URL` تلقائياً في خدمة الويب والعامل. الخطة المجانية مناسبة للاختبار فقط وتنتهي بعد 30 يوماً وفق قيود Render؛ يمكن ترقيتها من لوحة Render عند الحاجة.

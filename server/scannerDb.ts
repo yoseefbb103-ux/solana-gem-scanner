@@ -35,10 +35,11 @@ export async function acquireScannerRunLock(lockToken: string) {
   if (!db) throw new Error("تعذر تأمين الفحص لأن قاعدة البيانات غير متاحة.");
   const lockedAt = new Date();
   const expiresAt = new Date(lockedAt.getTime() - SCANNER_LOCK_TTL_MS);
-  await db.insert(scannerRunLocks).values({ scopeKey: SCANNER_LOCK_SCOPE, lockToken, lockedAt }).onDuplicateKeyUpdate({
+  await db.insert(scannerRunLocks).values({ scopeKey: SCANNER_LOCK_SCOPE, lockToken, lockedAt }).onConflictDoUpdate({
+    target: scannerRunLocks.scopeKey,
     set: {
-      lockToken: sql`IF(${scannerRunLocks.lockedAt} < ${expiresAt}, VALUES(${sql.raw("`lockToken`")}), ${scannerRunLocks.lockToken})`,
-      lockedAt: sql`IF(${scannerRunLocks.lockedAt} < ${expiresAt}, VALUES(${sql.raw("`lockedAt`")}), ${scannerRunLocks.lockedAt})`,
+      lockToken: sql`CASE WHEN ${scannerRunLocks.lockedAt} < ${expiresAt} THEN ${lockToken} ELSE ${scannerRunLocks.lockToken} END`,
+      lockedAt: sql`CASE WHEN ${scannerRunLocks.lockedAt} < ${expiresAt} THEN ${lockedAt} ELSE ${scannerRunLocks.lockedAt} END`,
     },
   });
   const [activeLock] = await db.select().from(scannerRunLocks).where(eq(scannerRunLocks.scopeKey, SCANNER_LOCK_SCOPE)).limit(1);
@@ -151,7 +152,7 @@ export async function getScannerSettings(): Promise<ScannerSettings> {
 export async function saveScannerSettings(settings: ScannerSettings) {
   const db = await getDb();
   if (!db) return;
-  await db.insert(scannerSettings).values({ scopeKey: "public-scanner", ...settings }).onDuplicateKeyUpdate({ set: { ...settings, updatedAt: new Date() } });
+  await db.insert(scannerSettings).values({ scopeKey: "public-scanner", ...settings }).onConflictDoUpdate({ target: scannerSettings.scopeKey, set: { ...settings, updatedAt: new Date() } });
 }
 
 export async function recordSourceHealth(event: HealthEvent) {
@@ -177,9 +178,8 @@ export async function storeScan(input: StoreScanInput) {
   const result = await db.insert(scanRuns).values({
     source: input.source, status: input.status, executionOrigin: input.executionOrigin, candidateCount: input.candidates.length,
     visibleCount: input.visibleCount, filterJson: JSON.stringify(input.filters), errorMessage: input.errorMessage ?? null, fetchedAt: input.fetchedAt,
-  });
-  const insertHeader = Array.isArray(result) ? result[0] : result;
-  const scanId = Number((insertHeader as { insertId?: number } | undefined)?.insertId ?? 0);
+  }).returning({ id: scanRuns.id });
+  const scanId = result[0]?.id ?? 0;
   if (!scanId || !input.candidates.length) return { scanId: scanId || null, persisted: Boolean(scanId) };
   await db.insert(scannerSnapshots).values(input.candidates.map((candidate) => ({
     scanRunId: scanId, pairAddress: candidate.pairAddress, baseAddress: candidate.baseAddress, symbol: candidate.symbol, name: candidate.name,
@@ -242,7 +242,7 @@ export async function getSavedFilters() {
 export async function saveFilters(filters: ScanFilters) {
   const db = await getDb();
   if (!db) return;
-  await db.insert(filterSettings).values({ scopeKey: "public-dashboard", settingsJson: JSON.stringify(filters) }).onDuplicateKeyUpdate({ set: { settingsJson: JSON.stringify(filters), updatedAt: new Date() } });
+  await db.insert(filterSettings).values({ scopeKey: "public-dashboard", settingsJson: JSON.stringify(filters) }).onConflictDoUpdate({ target: filterSettings.scopeKey, set: { settingsJson: JSON.stringify(filters), updatedAt: new Date() } });
 }
 
 export async function listWatchlist() {
@@ -254,7 +254,7 @@ export async function listWatchlist() {
 export async function addToWatchlist(input: { baseAddress: string; pairAddress: string; symbol: string; name: string; sourceUrl: string }) {
   const db = await getDb();
   if (!db) return false;
-  await db.insert(watchlist).values(input).onDuplicateKeyUpdate({ set: { pairAddress: input.pairAddress, symbol: input.symbol, name: input.name, sourceUrl: input.sourceUrl } });
+  await db.insert(watchlist).values(input).onConflictDoUpdate({ target: watchlist.baseAddress, set: { pairAddress: input.pairAddress, symbol: input.symbol, name: input.name, sourceUrl: input.sourceUrl } });
   return true;
 }
 
@@ -286,9 +286,9 @@ export async function recordEarlyDiscoveries(candidates: TokenCandidate[]): Prom
     baseAddress: candidate.baseAddress, pairAddress: candidate.pairAddress, symbol: candidate.symbol, name: candidate.name, sourceUrl: candidate.sourceUrl,
     discoverySourcesJson: JSON.stringify(candidate.discoverySources), firstLiquidityUsd: candidate.liquidityUsd,
     pairCreatedAt: candidate.pairCreatedAt ? new Date(candidate.pairCreatedAt) : null, firstSeenAt: now, lastSeenAt: now,
-  }))).onDuplicateKeyUpdate({ set: {
-    pairAddress: sql`VALUES(\`pairAddress\`)`, symbol: sql`VALUES(\`symbol\`)`, name: sql`VALUES(\`name\`)`, sourceUrl: sql`VALUES(\`sourceUrl\`)`,
-    discoverySourcesJson: sql`VALUES(\`discoverySourcesJson\`)`, lastSeenAt: now,
+  }))).onConflictDoUpdate({ target: earlyTokenWatches.baseAddress, set: {
+    pairAddress: sql.raw('excluded."pairAddress"'), symbol: sql.raw('excluded."symbol"'), name: sql.raw('excluded."name"'), sourceUrl: sql.raw('excluded."sourceUrl"'),
+    discoverySourcesJson: sql.raw('excluded."discoverySourcesJson"'), lastSeenAt: now,
   } });
   return discovered.map((candidate) => ({
     baseAddress: candidate.baseAddress, pairAddress: candidate.pairAddress, symbol: candidate.symbol, name: candidate.name, sourceUrl: candidate.sourceUrl,
@@ -308,9 +308,8 @@ export async function promoteEarlyDiscoveries(candidates: ScoredCandidate[], sca
         eq(earlyTokenWatches.baseAddress, candidate.baseAddress),
         eq(earlyTokenWatches.stage, "early"),
         eq(earlyTokenWatches.confirmedAlerted, false),
-      ));
-      const header = Array.isArray(result) ? result[0] : result;
-      if (Number((header as { affectedRows?: number } | undefined)?.affectedRows ?? 0) === 0) return false;
+      )).returning({ id: earlyTokenWatches.id });
+      if (result.length === 0) return false;
       await tx.insert(alertEvents).values({ baseAddress: candidate.baseAddress, symbol: candidate.symbol, opportunityScore: candidate.opportunityScore, riskScore: candidate.riskScore, channel: "in_app", alertType: "confirmed_alert", deliveryStatus: "sent", detail: CONFIRMED_ALERT_DETAIL });
       return true;
     });

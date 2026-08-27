@@ -1,53 +1,1543 @@
 {
-  "version": "5",
-  "dialect": "mysql",
-  "id": "ef295e5c-4453-4c7e-995d-612f06dd1fe4",
+  "id": "f1cb611b-a77d-4021-82ce-d7883a8a8193",
   "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
   "tables": {
-    "users": {
-      "name": "users",
+    "public.alertEvents": {
+      "name": "alertEvents",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "int",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "alertEvents_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "baseAddress": {
+          "name": "baseAddress",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "symbol": {
+          "name": "symbol",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "opportunityScore": {
+          "name": "opportunityScore",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "riskScore": {
+          "name": "riskScore",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel": {
+          "name": "channel",
+          "type": "channel",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "alertType": {
+          "name": "alertType",
+          "type": "alert_type",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": true
+          "default": "'threshold'"
+        },
+        "deliveryStatus": {
+          "name": "deliveryStatus",
+          "type": "delivery_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "detail": {
+          "name": "detail",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "alert_events_address_date_idx": {
+          "name": "alert_events_address_date_idx",
+          "columns": [
+            {
+              "expression": "baseAddress",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "createdAt",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.earlyTokenWatches": {
+      "name": "earlyTokenWatches",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "earlyTokenWatches_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "baseAddress": {
+          "name": "baseAddress",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pairAddress": {
+          "name": "pairAddress",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "symbol": {
+          "name": "symbol",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(160)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sourceUrl": {
+          "name": "sourceUrl",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "discoverySourcesJson": {
+          "name": "discoverySourcesJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "firstLiquidityUsd": {
+          "name": "firstLiquidityUsd",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "pairCreatedAt": {
+          "name": "pairCreatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "firstSeenAt": {
+          "name": "firstSeenAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "lastSeenAt": {
+          "name": "lastSeenAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "stage": {
+          "name": "stage",
+          "type": "stage",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'early'"
+        },
+        "confirmedAt": {
+          "name": "confirmedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirmationScanRunId": {
+          "name": "confirmationScanRunId",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "earlyAlerted": {
+          "name": "earlyAlerted",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "confirmedAlerted": {
+          "name": "confirmedAlerted",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        }
+      },
+      "indexes": {
+        "early_watches_stage_seen_idx": {
+          "name": "early_watches_stage_seen_idx",
+          "columns": [
+            {
+              "expression": "stage",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "firstSeenAt",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "early_watches_pair_idx": {
+          "name": "early_watches_pair_idx",
+          "columns": [
+            {
+              "expression": "pairAddress",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "earlyTokenWatches_baseAddress_unique": {
+          "name": "earlyTokenWatches_baseAddress_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "baseAddress"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.filterSettings": {
+      "name": "filterSettings",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "filterSettings_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "scopeKey": {
+          "name": "scopeKey",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "settingsJson": {
+          "name": "settingsJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "filterSettings_scopeKey_unique": {
+          "name": "filterSettings_scopeKey_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "scopeKey"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.knownRuggedDeployers": {
+      "name": "knownRuggedDeployers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "knownRuggedDeployers_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "creatorAddress": {
+          "name": "creatorAddress",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "firstSeenAt": {
+          "name": "firstSeenAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "lastSeenAt": {
+          "name": "lastSeenAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "hitCount": {
+          "name": "hitCount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "source": {
+          "name": "source",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'RugCheck'"
+        }
+      },
+      "indexes": {
+        "known_rugged_deployers_last_seen_idx": {
+          "name": "known_rugged_deployers_last_seen_idx",
+          "columns": [
+            {
+              "expression": "lastSeenAt",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "knownRuggedDeployers_creatorAddress_unique": {
+          "name": "knownRuggedDeployers_creatorAddress_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "creatorAddress"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.performanceCheckpoints": {
+      "name": "performanceCheckpoints",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "performanceCheckpoints_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "scanRunId": {
+          "name": "scanRunId",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "baseAddress": {
+          "name": "baseAddress",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "symbol": {
+          "name": "symbol",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sourceUrl": {
+          "name": "sourceUrl",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "opportunityScore": {
+          "name": "opportunityScore",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "riskScore": {
+          "name": "riskScore",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "baselinePriceUsd": {
+          "name": "baselinePriceUsd",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "horizonMinutes": {
+          "name": "horizonMinutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dueAt": {
+          "name": "dueAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "observedAt": {
+          "name": "observedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "observedPriceUsd": {
+          "name": "observedPriceUsd",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "returnPct": {
+          "name": "returnPct",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "outcome",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "performance_due_outcome_idx": {
+          "name": "performance_due_outcome_idx",
+          "columns": [
+            {
+              "expression": "outcome",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "dueAt",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "performance_base_address_idx": {
+          "name": "performance_base_address_idx",
+          "columns": [
+            {
+              "expression": "baseAddress",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.scanRuns": {
+      "name": "scanRuns",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "scanRuns_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "source": {
+          "name": "source",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "scan_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "executionOrigin": {
+          "name": "executionOrigin",
+          "type": "execution_origin",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'manual'"
+        },
+        "candidateCount": {
+          "name": "candidateCount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "visibleCount": {
+          "name": "visibleCount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "filterJson": {
+          "name": "filterJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "errorMessage": {
+          "name": "errorMessage",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fetchedAt": {
+          "name": "fetchedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "scan_runs_fetched_at_idx": {
+          "name": "scan_runs_fetched_at_idx",
+          "columns": [
+            {
+              "expression": "fetchedAt",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.scannerRunLocks": {
+      "name": "scannerRunLocks",
+      "schema": "",
+      "columns": {
+        "scopeKey": {
+          "name": "scopeKey",
+          "type": "varchar(64)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "lockToken": {
+          "name": "lockToken",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lockedAt": {
+          "name": "lockedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "scanner_run_locks_locked_at_idx": {
+          "name": "scanner_run_locks_locked_at_idx",
+          "columns": [
+            {
+              "expression": "lockedAt",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.scannerSettings": {
+      "name": "scannerSettings",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "scannerSettings_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "scopeKey": {
+          "name": "scopeKey",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "strictSecurity": {
+          "name": "strictSecurity",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "opportunityAlertThreshold": {
+          "name": "opportunityAlertThreshold",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 72
+        },
+        "riskAlertThreshold": {
+          "name": "riskAlertThreshold",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 28
+        },
+        "cooldownMinutes": {
+          "name": "cooldownMinutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 120
+        },
+        "deepScanLimit": {
+          "name": "deepScanLimit",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 8
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "scannerSettings_scopeKey_unique": {
+          "name": "scannerSettings_scopeKey_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "scopeKey"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.scannerSnapshots": {
+      "name": "scannerSnapshots",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "scannerSnapshots_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "scanRunId": {
+          "name": "scanRunId",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pairAddress": {
+          "name": "pairAddress",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "baseAddress": {
+          "name": "baseAddress",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "symbol": {
+          "name": "symbol",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(160)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dexId": {
+          "name": "dexId",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sourceUrl": {
+          "name": "sourceUrl",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "priceUsd": {
+          "name": "priceUsd",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "liquidityUsd": {
+          "name": "liquidityUsd",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "volumeH1": {
+          "name": "volumeH1",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "volumeH24": {
+          "name": "volumeH24",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "transactionsH1": {
+          "name": "transactionsH1",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "priceChangeM5": {
+          "name": "priceChangeM5",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "priceChangeH1": {
+          "name": "priceChangeH1",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "pairCreatedAt": {
+          "name": "pairCreatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "opportunityScore": {
+          "name": "opportunityScore",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "riskScore": {
+          "name": "riskScore",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scoreDelta": {
+          "name": "scoreDelta",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "decision": {
+          "name": "decision",
+          "type": "decision",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'caution'"
+        },
+        "liquidityDeltaPct": {
+          "name": "liquidityDeltaPct",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "liquidityPullDetected": {
+          "name": "liquidityPullDetected",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "liquidityGrowthStable": {
+          "name": "liquidityGrowthStable",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "liquidDexCount": {
+          "name": "liquidDexCount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "metadataCompleteness": {
+          "name": "metadataCompleteness",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "jupiterPriceUsd": {
+          "name": "jupiterPriceUsd",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "priceDivergencePct": {
+          "name": "priceDivergencePct",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "holderClusterScore": {
+          "name": "holderClusterScore",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bundleDetected": {
+          "name": "bundleDetected",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "washTradingScore": {
+          "name": "washTradingScore",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fundingSourceOverlap": {
+          "name": "fundingSourceOverlap",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fundingEvidenceStatus": {
+          "name": "fundingEvidenceStatus",
+          "type": "varchar(48)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "token2022Flags": {
+          "name": "token2022Flags",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lpBurnVerified": {
+          "name": "lpBurnVerified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "factorsJson": {
+          "name": "factorsJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "warningsJson": {
+          "name": "warningsJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fetchedAt": {
+          "name": "fetchedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "scanner_snapshots_base_address_idx": {
+          "name": "scanner_snapshots_base_address_idx",
+          "columns": [
+            {
+              "expression": "baseAddress",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "scanner_snapshots_symbol_idx": {
+          "name": "scanner_snapshots_symbol_idx",
+          "columns": [
+            {
+              "expression": "symbol",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "scanner_snapshots_scan_run_idx": {
+          "name": "scanner_snapshots_scan_run_idx",
+          "columns": [
+            {
+              "expression": "scanRunId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "scanner_snapshots_fetched_at_idx": {
+          "name": "scanner_snapshots_fetched_at_idx",
+          "columns": [
+            {
+              "expression": "fetchedAt",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.securityReports": {
+      "name": "securityReports",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "securityReports_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "scanRunId": {
+          "name": "scanRunId",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "baseAddress": {
+          "name": "baseAddress",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pairAddress": {
+          "name": "pairAddress",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "symbol": {
+          "name": "symbol",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'RugCheck'"
+        },
+        "status": {
+          "name": "status",
+          "type": "security_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "mintAuthorityOpen": {
+          "name": "mintAuthorityOpen",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "freezeAuthorityOpen": {
+          "name": "freezeAuthorityOpen",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "lpLockStatus": {
+          "name": "lpLockStatus",
+          "type": "lp_lock_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'unknown'"
+        },
+        "holderTopPct": {
+          "name": "holderTopPct",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "holderTop10Pct": {
+          "name": "holderTop10Pct",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "creatorAddress": {
+          "name": "creatorAddress",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ruggedCreator": {
+          "name": "ruggedCreator",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "knownRuggedDeployer": {
+          "name": "knownRuggedDeployer",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "sprayCount24h": {
+          "name": "sprayCount24h",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "rugcheckScore": {
+          "name": "rugcheckScore",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "symbolConflict": {
+          "name": "symbolConflict",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "deepScanApplied": {
+          "name": "deepScanApplied",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "holderClusterScore": {
+          "name": "holderClusterScore",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bundleDetected": {
+          "name": "bundleDetected",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "washTradingScore": {
+          "name": "washTradingScore",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fundingSourceOverlap": {
+          "name": "fundingSourceOverlap",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fundingEvidenceStatus": {
+          "name": "fundingEvidenceStatus",
+          "type": "varchar(48)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "token2022Flags": {
+          "name": "token2022Flags",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lpBurnVerified": {
+          "name": "lpBurnVerified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "flagsJson": {
+          "name": "flagsJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "checkedAt": {
+          "name": "checkedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "security_reports_base_address_idx": {
+          "name": "security_reports_base_address_idx",
+          "columns": [
+            {
+              "expression": "baseAddress",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "security_reports_scan_run_idx": {
+          "name": "security_reports_scan_run_idx",
+          "columns": [
+            {
+              "expression": "scanRunId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "security_reports_checked_at_idx": {
+          "name": "security_reports_checked_at_idx",
+          "columns": [
+            {
+              "expression": "checkedAt",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.sourceHealthEvents": {
+      "name": "sourceHealthEvents",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "sourceHealthEvents_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "source": {
+          "name": "source",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "eventType": {
+          "name": "eventType",
+          "type": "source_health_event_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "responseStatus": {
+          "name": "responseStatus",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "latencyMs": {
+          "name": "latencyMs",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "intervalMs": {
+          "name": "intervalMs",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "detail": {
+          "name": "detail",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "occurredAt": {
+          "name": "occurredAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "source_health_events_source_date_idx": {
+          "name": "source_health_events_source_date_idx",
+          "columns": [
+            {
+              "expression": "source",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "occurredAt",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.users": {
+      "name": "users",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "users_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
         },
         "openId": {
           "name": "openId",
           "type": "varchar(64)",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "name": {
           "name": "name",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "email": {
           "name": "email",
           "type": "varchar(320)",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "loginMethod": {
           "name": "loginMethod",
           "type": "varchar(64)",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "role": {
           "name": "role",
-          "type": "enum('user','admin')",
+          "type": "role",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
           "default": "'user'"
         },
         "createdAt": {
@@ -55,56 +1545,132 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
+          "default": "now()"
         },
         "updatedAt": {
           "name": "updatedAt",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "onUpdate": true,
-          "default": "(now())"
+          "default": "now()"
         },
         "lastSignedIn": {
           "name": "lastSignedIn",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
+          "default": "now()"
         }
       },
       "indexes": {},
       "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "users_id": {
-          "name": "users_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "users_openId_unique": {
           "name": "users_openId_unique",
+          "nullsNotDistinct": false,
           "columns": [
             "openId"
           ]
         }
       },
-      "checkConstraint": {}
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.watchlist": {
+      "name": "watchlist",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "watchlist_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "baseAddress": {
+          "name": "baseAddress",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pairAddress": {
+          "name": "pairAddress",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "symbol": {
+          "name": "symbol",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(160)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sourceUrl": {
+          "name": "sourceUrl",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "addedAt": {
+          "name": "addedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "watchlist_base_address_unique": {
+          "name": "watchlist_base_address_unique",
+          "columns": [
+            {
+              "expression": "baseAddress",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
     }
   },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
   "views": {},
   "_meta": {
+    "columns": {},
     "schemas": {},
-    "tables": {},
-    "columns": {}
-  },
-  "internal": {
-    "tables": {},
-    "indexes": {}
+    "tables": {}
   }
 }

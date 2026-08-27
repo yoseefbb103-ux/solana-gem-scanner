@@ -9,12 +9,12 @@ import type { ScoredCandidate } from "./scanner/types";
 const mockedGetDb = vi.mocked(getDb);
 
 function buildDb(activeLockToken: string) {
-  const onDuplicateKeyUpdate = vi.fn().mockResolvedValue(undefined);
-  const insert = vi.fn().mockReturnValue({ values: vi.fn().mockReturnValue({ onDuplicateKeyUpdate }) });
+  const onConflictDoUpdate = vi.fn().mockResolvedValue(undefined);
+  const insert = vi.fn().mockReturnValue({ values: vi.fn().mockReturnValue({ onConflictDoUpdate }) });
   const select = vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue([{ scopeKey: "global-scanner", lockToken: activeLockToken, lockedAt: new Date() }]) }) }) });
   const deleteWhere = vi.fn().mockResolvedValue(undefined);
   const remove = vi.fn().mockReturnValue({ where: deleteWhere });
-  return { db: { insert, select, delete: remove }, onDuplicateKeyUpdate, deleteWhere };
+  return { db: { insert, select, delete: remove }, onConflictDoUpdate, deleteWhere };
 }
 
 describe("shared scanner run lock", () => {
@@ -25,7 +25,7 @@ describe("shared scanner run lock", () => {
     mockedGetDb.mockResolvedValue(fixture.db as never);
 
     await expect(acquireScannerRunLock("owner-token")).resolves.toBeUndefined();
-    expect(fixture.onDuplicateKeyUpdate).toHaveBeenCalledTimes(1);
+    expect(fixture.onConflictDoUpdate).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a caller when another process owns the active lock", async () => {
@@ -48,7 +48,8 @@ describe("early watch promotion", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("promotes an early watch once and preserves its confirmed state on the next scan", async () => {
-    const updateWhere = vi.fn().mockResolvedValueOnce({ affectedRows: 1 }).mockResolvedValueOnce({ affectedRows: 0 });
+    const returning = vi.fn().mockResolvedValueOnce([{ id: 1 }]).mockResolvedValueOnce([]);
+    const updateWhere = vi.fn().mockReturnValue({ returning });
     const updateSet = vi.fn().mockReturnValue({ where: updateWhere });
     const confirmedAlertInsert = vi.fn().mockResolvedValue(undefined);
     const tx = {

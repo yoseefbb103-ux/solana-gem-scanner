@@ -1,60 +1,73 @@
-import { boolean, float, index, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
+import { boolean, index, integer, pgEnum, pgTable, real, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 
-export const users = mysqlTable("users", {
-  id: int("id").autoincrement().primaryKey(),
+const roleEnum = pgEnum("role", ["user", "admin"]);
+const scanStatusEnum = pgEnum("scan_status", ["success", "partial", "failed"]);
+const executionOriginEnum = pgEnum("execution_origin", ["manual", "worker"]);
+const decisionEnum = pgEnum("decision", ["monitor", "caution", "avoid"]);
+const lpLockStatusEnum = pgEnum("lp_lock_status", ["locked", "unlocked", "unknown"]);
+const sourceHealthEventTypeEnum = pgEnum("source_health_event_type", ["normal", "slow", "throttled", "error", "recovered"]);
+const outcomeEnum = pgEnum("outcome", ["pending", "success", "failed", "unavailable"]);
+const stageEnum = pgEnum("stage", ["early", "confirmed"]);
+const channelEnum = pgEnum("channel", ["in_app", "telegram"]);
+const alertTypeEnum = pgEnum("alert_type", ["threshold", "liquidity_pull", "decision_flip", "early_watch", "confirmed_alert"]);
+const deliveryStatusEnum = pgEnum("delivery_status", ["queued", "sent", "skipped", "failed"]);
+const securityStatusEnum = pgEnum("security_status", ["passed", "flagged", "unavailable"]);
+
+export const users = pgTable("users", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  role: roleEnum("role").default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
-export const scanRuns = mysqlTable("scanRuns", {
-  id: int("id").autoincrement().primaryKey(),
+export const scanRuns = pgTable("scanRuns", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   source: varchar("source", { length: 80 }).notNull(),
-  status: mysqlEnum("status", ["success", "partial", "failed"]).notNull(),
-  executionOrigin: mysqlEnum("executionOrigin", ["manual", "worker"]).notNull().default("manual"),
-  candidateCount: int("candidateCount").notNull().default(0),
-  visibleCount: int("visibleCount").notNull().default(0),
+  status: scanStatusEnum("status").notNull(),
+  executionOrigin: executionOriginEnum("executionOrigin").notNull().default("manual"),
+  candidateCount: integer("candidateCount").notNull().default(0),
+  visibleCount: integer("visibleCount").notNull().default(0),
   filterJson: text("filterJson").notNull(),
   errorMessage: text("errorMessage"),
   fetchedAt: timestamp("fetchedAt").defaultNow().notNull(),
 }, (table) => [index("scan_runs_fetched_at_idx").on(table.fetchedAt)]);
 
-export const scannerSnapshots = mysqlTable("scannerSnapshots", {
-  id: int("id").autoincrement().primaryKey(),
-  scanRunId: int("scanRunId").notNull(),
+export const scannerSnapshots = pgTable("scannerSnapshots", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
+  scanRunId: integer("scanRunId").notNull(),
   pairAddress: varchar("pairAddress", { length: 80 }).notNull(),
   baseAddress: varchar("baseAddress", { length: 80 }).notNull(),
   symbol: varchar("symbol", { length: 64 }).notNull(),
   name: varchar("name", { length: 160 }).notNull(),
   dexId: varchar("dexId", { length: 64 }).notNull(),
   sourceUrl: text("sourceUrl").notNull(),
-  priceUsd: float("priceUsd"),
-  liquidityUsd: float("liquidityUsd").notNull().default(0),
-  volumeH1: float("volumeH1").notNull().default(0),
-  volumeH24: float("volumeH24").notNull().default(0),
-  transactionsH1: int("transactionsH1").notNull().default(0),
-  priceChangeM5: float("priceChangeM5").notNull().default(0),
-  priceChangeH1: float("priceChangeH1").notNull().default(0),
+  priceUsd: real("priceUsd"),
+  liquidityUsd: real("liquidityUsd").notNull().default(0),
+  volumeH1: real("volumeH1").notNull().default(0),
+  volumeH24: real("volumeH24").notNull().default(0),
+  transactionsH1: integer("transactionsH1").notNull().default(0),
+  priceChangeM5: real("priceChangeM5").notNull().default(0),
+  priceChangeH1: real("priceChangeH1").notNull().default(0),
   pairCreatedAt: timestamp("pairCreatedAt"),
-  opportunityScore: float("opportunityScore").notNull(),
-  riskScore: float("riskScore").notNull(),
-  scoreDelta: float("scoreDelta").notNull().default(0),
-  decision: mysqlEnum("decision", ["monitor", "caution", "avoid"]).notNull().default("caution"),
-  liquidityDeltaPct: float("liquidityDeltaPct"),
+  opportunityScore: real("opportunityScore").notNull(),
+  riskScore: real("riskScore").notNull(),
+  scoreDelta: real("scoreDelta").notNull().default(0),
+  decision: decisionEnum("decision").notNull().default("caution"),
+  liquidityDeltaPct: real("liquidityDeltaPct"),
   liquidityPullDetected: boolean("liquidityPullDetected").notNull().default(false),
   liquidityGrowthStable: boolean("liquidityGrowthStable").notNull().default(false),
-  liquidDexCount: int("liquidDexCount").notNull().default(1),
-  metadataCompleteness: int("metadataCompleteness").notNull().default(0),
-  jupiterPriceUsd: float("jupiterPriceUsd"),
-  priceDivergencePct: float("priceDivergencePct"),
-  holderClusterScore: float("holderClusterScore"),
+  liquidDexCount: integer("liquidDexCount").notNull().default(1),
+  metadataCompleteness: integer("metadataCompleteness").notNull().default(0),
+  jupiterPriceUsd: real("jupiterPriceUsd"),
+  priceDivergencePct: real("priceDivergencePct"),
+  holderClusterScore: real("holderClusterScore"),
   bundleDetected: boolean("bundleDetected"),
-  washTradingScore: float("washTradingScore"),
+  washTradingScore: real("washTradingScore"),
   fundingSourceOverlap: boolean("fundingSourceOverlap"),
   fundingEvidenceStatus: varchar("fundingEvidenceStatus", { length: 48 }),
   token2022Flags: text("token2022Flags"),
@@ -69,29 +82,29 @@ export const scannerSnapshots = mysqlTable("scannerSnapshots", {
   index("scanner_snapshots_fetched_at_idx").on(table.fetchedAt),
 ]);
 
-export const securityReports = mysqlTable("securityReports", {
-  id: int("id").autoincrement().primaryKey(),
-  scanRunId: int("scanRunId"),
+export const securityReports = pgTable("securityReports", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
+  scanRunId: integer("scanRunId"),
   baseAddress: varchar("baseAddress", { length: 80 }).notNull(),
   pairAddress: varchar("pairAddress", { length: 80 }).notNull(),
   symbol: varchar("symbol", { length: 64 }).notNull(),
   source: varchar("source", { length: 80 }).notNull().default("RugCheck"),
-  status: mysqlEnum("status", ["passed", "flagged", "unavailable"]).notNull(),
+  status: securityStatusEnum("status").notNull(),
   mintAuthorityOpen: boolean("mintAuthorityOpen").notNull().default(false),
   freezeAuthorityOpen: boolean("freezeAuthorityOpen").notNull().default(false),
-  lpLockStatus: mysqlEnum("lpLockStatus", ["locked", "unlocked", "unknown"]).notNull().default("unknown"),
-  holderTopPct: float("holderTopPct"),
-  holderTop10Pct: float("holderTop10Pct"),
+  lpLockStatus: lpLockStatusEnum("lpLockStatus").notNull().default("unknown"),
+  holderTopPct: real("holderTopPct"),
+  holderTop10Pct: real("holderTop10Pct"),
   creatorAddress: varchar("creatorAddress", { length: 80 }),
   ruggedCreator: boolean("ruggedCreator").notNull().default(false),
   knownRuggedDeployer: boolean("knownRuggedDeployer").notNull().default(false),
-  sprayCount24h: int("sprayCount24h").notNull().default(0),
-  rugcheckScore: float("rugcheckScore"),
+  sprayCount24h: integer("sprayCount24h").notNull().default(0),
+  rugcheckScore: real("rugcheckScore"),
   symbolConflict: boolean("symbolConflict").notNull().default(false),
   deepScanApplied: boolean("deepScanApplied").notNull().default(false),
-  holderClusterScore: float("holderClusterScore"),
+  holderClusterScore: real("holderClusterScore"),
   bundleDetected: boolean("bundleDetected"),
-  washTradingScore: float("washTradingScore"),
+  washTradingScore: real("washTradingScore"),
   fundingSourceOverlap: boolean("fundingSourceOverlap"),
   fundingEvidenceStatus: varchar("fundingEvidenceStatus", { length: 48 }),
   token2022Flags: text("token2022Flags"),
@@ -104,52 +117,52 @@ export const securityReports = mysqlTable("securityReports", {
   index("security_reports_checked_at_idx").on(table.checkedAt),
 ]);
 
-export const knownRuggedDeployers = mysqlTable("knownRuggedDeployers", {
-  id: int("id").autoincrement().primaryKey(),
+export const knownRuggedDeployers = pgTable("knownRuggedDeployers", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   creatorAddress: varchar("creatorAddress", { length: 80 }).notNull().unique(),
   firstSeenAt: timestamp("firstSeenAt").defaultNow().notNull(),
   lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
-  hitCount: int("hitCount").notNull().default(1),
+  hitCount: integer("hitCount").notNull().default(1),
   source: varchar("source", { length: 80 }).notNull().default("RugCheck"),
 }, (table) => [index("known_rugged_deployers_last_seen_idx").on(table.lastSeenAt)]);
 
-export const sourceHealthEvents = mysqlTable("sourceHealthEvents", {
-  id: int("id").autoincrement().primaryKey(),
+export const sourceHealthEvents = pgTable("sourceHealthEvents", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   source: varchar("source", { length: 80 }).notNull(),
-  eventType: mysqlEnum("eventType", ["normal", "slow", "throttled", "error", "recovered"]).notNull(),
-  responseStatus: int("responseStatus"),
-  latencyMs: int("latencyMs"),
-  intervalMs: int("intervalMs").notNull(),
+  eventType: sourceHealthEventTypeEnum("eventType").notNull(),
+  responseStatus: integer("responseStatus"),
+  latencyMs: integer("latencyMs"),
+  intervalMs: integer("intervalMs").notNull(),
   detail: text("detail"),
   occurredAt: timestamp("occurredAt").defaultNow().notNull(),
 }, (table) => [index("source_health_events_source_date_idx").on(table.source, table.occurredAt)]);
 
-export const scannerRunLocks = mysqlTable("scannerRunLocks", {
+export const scannerRunLocks = pgTable("scannerRunLocks", {
   scopeKey: varchar("scopeKey", { length: 64 }).primaryKey(),
   lockToken: varchar("lockToken", { length: 80 }).notNull(),
   lockedAt: timestamp("lockedAt").defaultNow().notNull(),
 }, (table) => [index("scanner_run_locks_locked_at_idx").on(table.lockedAt)]);
 
-export const scannerSettings = mysqlTable("scannerSettings", {
-  id: int("id").autoincrement().primaryKey(),
+export const scannerSettings = pgTable("scannerSettings", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   scopeKey: varchar("scopeKey", { length: 80 }).notNull().unique(),
   strictSecurity: boolean("strictSecurity").notNull().default(true),
-  opportunityAlertThreshold: float("opportunityAlertThreshold").notNull().default(72),
-  riskAlertThreshold: float("riskAlertThreshold").notNull().default(28),
-  cooldownMinutes: int("cooldownMinutes").notNull().default(120),
-  deepScanLimit: int("deepScanLimit").notNull().default(8),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  opportunityAlertThreshold: real("opportunityAlertThreshold").notNull().default(72),
+  riskAlertThreshold: real("riskAlertThreshold").notNull().default(28),
+  cooldownMinutes: integer("cooldownMinutes").notNull().default(120),
+  deepScanLimit: integer("deepScanLimit").notNull().default(8),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
-export const filterSettings = mysqlTable("filterSettings", {
-  id: int("id").autoincrement().primaryKey(),
+export const filterSettings = pgTable("filterSettings", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   scopeKey: varchar("scopeKey", { length: 80 }).notNull().unique(),
   settingsJson: text("settingsJson").notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
-export const watchlist = mysqlTable("watchlist", {
-  id: int("id").autoincrement().primaryKey(),
+export const watchlist = pgTable("watchlist", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   baseAddress: varchar("baseAddress", { length: 80 }).notNull(),
   pairAddress: varchar("pairAddress", { length: 80 }).notNull(),
   symbol: varchar("symbol", { length: 64 }).notNull(),
@@ -158,42 +171,42 @@ export const watchlist = mysqlTable("watchlist", {
   addedAt: timestamp("addedAt").defaultNow().notNull(),
 }, (table) => [uniqueIndex("watchlist_base_address_unique").on(table.baseAddress)]);
 
-export const performanceCheckpoints = mysqlTable("performanceCheckpoints", {
-  id: int("id").autoincrement().primaryKey(),
-  scanRunId: int("scanRunId").notNull(),
+export const performanceCheckpoints = pgTable("performanceCheckpoints", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
+  scanRunId: integer("scanRunId").notNull(),
   baseAddress: varchar("baseAddress", { length: 80 }).notNull(),
   symbol: varchar("symbol", { length: 64 }).notNull(),
   sourceUrl: text("sourceUrl").notNull(),
-  opportunityScore: float("opportunityScore").notNull(),
-  riskScore: float("riskScore").notNull(),
-  baselinePriceUsd: float("baselinePriceUsd").notNull(),
-  horizonMinutes: int("horizonMinutes").notNull(),
+  opportunityScore: real("opportunityScore").notNull(),
+  riskScore: real("riskScore").notNull(),
+  baselinePriceUsd: real("baselinePriceUsd").notNull(),
+  horizonMinutes: integer("horizonMinutes").notNull(),
   dueAt: timestamp("dueAt").notNull(),
   observedAt: timestamp("observedAt"),
-  observedPriceUsd: float("observedPriceUsd"),
-  returnPct: float("returnPct"),
-  outcome: mysqlEnum("outcome", ["pending", "success", "failed", "unavailable"]).notNull().default("pending"),
+  observedPriceUsd: real("observedPriceUsd"),
+  returnPct: real("returnPct"),
+  outcome: outcomeEnum("outcome").notNull().default("pending"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [
   index("performance_due_outcome_idx").on(table.outcome, table.dueAt),
   index("performance_base_address_idx").on(table.baseAddress),
 ]);
 
-export const earlyTokenWatches = mysqlTable("earlyTokenWatches", {
-  id: int("id").autoincrement().primaryKey(),
+export const earlyTokenWatches = pgTable("earlyTokenWatches", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   baseAddress: varchar("baseAddress", { length: 80 }).notNull().unique(),
   pairAddress: varchar("pairAddress", { length: 80 }).notNull(),
   symbol: varchar("symbol", { length: 64 }).notNull(),
   name: varchar("name", { length: 160 }).notNull(),
   sourceUrl: text("sourceUrl").notNull(),
   discoverySourcesJson: text("discoverySourcesJson").notNull(),
-  firstLiquidityUsd: float("firstLiquidityUsd").notNull().default(0),
+  firstLiquidityUsd: real("firstLiquidityUsd").notNull().default(0),
   pairCreatedAt: timestamp("pairCreatedAt"),
   firstSeenAt: timestamp("firstSeenAt").defaultNow().notNull(),
-  lastSeenAt: timestamp("lastSeenAt").defaultNow().onUpdateNow().notNull(),
-  stage: mysqlEnum("stage", ["early", "confirmed"]).notNull().default("early"),
+  lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
+  stage: stageEnum("stage").notNull().default("early"),
   confirmedAt: timestamp("confirmedAt"),
-  confirmationScanRunId: int("confirmationScanRunId"),
+  confirmationScanRunId: integer("confirmationScanRunId"),
   earlyAlerted: boolean("earlyAlerted").notNull().default(false),
   confirmedAlerted: boolean("confirmedAlerted").notNull().default(false),
 }, (table) => [
@@ -201,15 +214,15 @@ export const earlyTokenWatches = mysqlTable("earlyTokenWatches", {
   index("early_watches_pair_idx").on(table.pairAddress),
 ]);
 
-export const alertEvents = mysqlTable("alertEvents", {
-  id: int("id").autoincrement().primaryKey(),
+export const alertEvents = pgTable("alertEvents", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   baseAddress: varchar("baseAddress", { length: 80 }).notNull(),
   symbol: varchar("symbol", { length: 64 }).notNull(),
-  opportunityScore: float("opportunityScore").notNull(),
-  riskScore: float("riskScore").notNull(),
-  channel: mysqlEnum("channel", ["in_app", "telegram"]).notNull(),
-  alertType: mysqlEnum("alertType", ["threshold", "liquidity_pull", "decision_flip", "early_watch", "confirmed_alert"]).notNull().default("threshold"),
-  deliveryStatus: mysqlEnum("deliveryStatus", ["queued", "sent", "skipped", "failed"]).notNull(),
+  opportunityScore: real("opportunityScore").notNull(),
+  riskScore: real("riskScore").notNull(),
+  channel: channelEnum("channel").notNull(),
+  alertType: alertTypeEnum("alertType").notNull().default("threshold"),
+  deliveryStatus: deliveryStatusEnum("deliveryStatus").notNull(),
   detail: text("detail"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [index("alert_events_address_date_idx").on(table.baseAddress, table.createdAt)]);
