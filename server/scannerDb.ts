@@ -317,7 +317,8 @@ export async function recordEarlyDiscoveries(candidates: TokenCandidate[]): Prom
   return discovered.map((candidate) => ({
     baseAddress: candidate.baseAddress, pairAddress: candidate.pairAddress, symbol: candidate.symbol, name: candidate.name, sourceUrl: candidate.sourceUrl,
     discoverySources: candidate.discoverySources, firstLiquidityUsd: candidate.liquidityUsd, pairCreatedAt: candidate.pairCreatedAt,
-    firstSeenAt: now.getTime(), lastSeenAt: now.getTime(), stage: "early", confirmedAt: null,
+    firstSeenAt: now.getTime(), lastSeenAt: now.getTime(), stage: "early" as const, confirmedAt: null,
+    priceUsd: candidate.priceUsd, volumeH1: candidate.volumeH1, transactionsH1: candidate.transactionsH1, buysH1: candidate.buysH1, sellsH1: candidate.sellsH1, priceChangeM5: candidate.priceChangeM5, priceChangeH1: candidate.priceChangeH1, imageUrl: candidate.imageUrl,
   }));
 }
 
@@ -352,6 +353,23 @@ export async function recordEarlyWatchAlert(watch: EarlyWatch, detail: string, d
   const db = await getDb();
   if (!db) return;
   await db.insert(alertEvents).values({ baseAddress: watch.baseAddress, symbol: watch.symbol, opportunityScore: 0, riskScore: 0, channel, alertType: "early_watch", deliveryStatus, detail });
+}
+
+export async function claimEarlyTelegramSlot(baseAddress: string) {
+  const db = await getDb();
+  if (!db) return false;
+  const now = new Date();
+  const windowStart = new Date(now.getTime() - 60 * 60_000);
+  return db.transaction(async (tx) => {
+    const [watch] = await tx.select({ earlyAlerted: earlyTokenWatches.earlyAlerted }).from(earlyTokenWatches).where(eq(earlyTokenWatches.baseAddress, baseAddress)).limit(1);
+    if (!watch || watch.earlyAlerted) return false;
+    const [row] = await tx.select({ count: sql<number>`count(*)` }).from(alertEvents).where(and(
+      eq(alertEvents.channel, "telegram"), eq(alertEvents.alertType, "early_watch"), eq(alertEvents.deliveryStatus, "sent"), gte(alertEvents.createdAt, windowStart),
+    ));
+    if (Number(row?.count ?? 0) >= 3) return false;
+    const updated = await tx.update(earlyTokenWatches).set({ earlyAlerted: true }).where(and(eq(earlyTokenWatches.baseAddress, baseAddress), eq(earlyTokenWatches.earlyAlerted, false))).returning({ id: earlyTokenWatches.id });
+    return updated.length > 0;
+  });
 }
 
 export async function queuePerformanceCheckpoints(scanId: number, candidates: ScoredCandidate[]) {

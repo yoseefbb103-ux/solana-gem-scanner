@@ -72,6 +72,7 @@ export type EarlyWatch = {
   baseAddress: string; pairAddress: string; symbol: string; name: string; sourceUrl: string;
   discoverySources: string[]; firstLiquidityUsd: number; pairCreatedAt: number | null;
   firstSeenAt: number; lastSeenAt: number; stage: "early" | "confirmed"; confirmedAt: number | null;
+  priceUsd?: number | null; volumeH1?: number; transactionsH1?: number; buysH1?: number; sellsH1?: number; priceChangeM5?: number; priceChangeH1?: number; imageUrl?: string | null;
 };
 
 export type MarketFetchResult = { candidates: TokenCandidate[]; telemetry: SourceTelemetry };

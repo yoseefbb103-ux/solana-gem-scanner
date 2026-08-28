@@ -14,6 +14,7 @@ import {
   getRecentlyProcessedPairAddresses,
   getSavedFilters,
   acquireScannerRunLock,
+  claimEarlyTelegramSlot,
   getScannerSettings,
   healthEventFromTelemetry,
   queuePerformanceCheckpoints,
@@ -29,7 +30,7 @@ import {
   storeScan,
   wasRecentlyAlerted,
 } from "../scannerDb";
-import { sendTelegramAlert } from "../telegram";
+import { isEarlyTelegramCandidate, sendTelegramAlert, sendTelegramEarlyWatch } from "../telegram";
 
 export type ScanOrigin = "manual" | "worker";
 export type ScannerRun = {
@@ -147,7 +148,18 @@ async function recordCandidateAlerts(candidates: ScoredCandidate[], eligibleForT
 
 async function recordEarlyDiscoveryAlerts(discoveries: Awaited<ReturnType<typeof recordEarlyDiscoveries>>) {
   for (const watch of discoveries.slice(0, 4)) {
-    await recordEarlyWatchAlert(watch, "رصد مبكر داخلي فقط؛ لا يُرسل إلى Telegram قبل اكتمال فحوص الأمان والسيولة والتسعير.");
+    if (!isEarlyTelegramCandidate(watch)) {
+      await recordEarlyWatchAlert(watch, "تم استبعاد الرصد المبكر: لم يجتز بوابة العمر أو السيولة أو النشاط أو عدم مطاردة السعر.", "skipped", "telegram");
+      continue;
+    }
+    if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) {
+      await recordEarlyWatchAlert(watch, "تنبيه الرصد المبكر غير مهيأ؛ بقي في سجل اللوحة فقط.", "skipped", "telegram");
+      continue;
+    }
+    const claimed = await claimEarlyTelegramSlot(watch.baseAddress);
+    if (!claimed) continue;
+    const delivery = await sendTelegramEarlyWatch(watch);
+    await recordEarlyWatchAlert(watch, delivery.detail, delivery.status, "telegram");
   }
 }
 

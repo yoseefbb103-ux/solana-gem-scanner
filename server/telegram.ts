@@ -1,7 +1,7 @@
 import type { EarlyWatch, ScoredCandidate } from "./scanner/types";
 
 type TelegramDelivery = { status: "sent" | "skipped" | "failed"; detail: string };
-export type TelegramAlertType = "threshold" | "liquidity_pull" | "decision_flip" | "confirmed_alert";
+export type TelegramAlertType = "threshold" | "liquidity_pull" | "decision_flip" | "confirmed_alert" | "early_watch";
 
 type TelegramPayload = { text: string; imageUrl?: string | null };
 
@@ -60,9 +60,42 @@ function formatAlert(candidate: ScoredCandidate): TelegramPayload {
   return { text: lines.join("\n"), imageUrl: candidate.imageUrl ?? null };
 }
 
+function earlyAgeMinutes(watch: EarlyWatch) {
+  const origin = watch.pairCreatedAt ?? watch.firstSeenAt;
+  return Math.max(0, Math.round((Date.now() - origin) / 60_000));
+}
+
+export function isEarlyTelegramCandidate(watch: EarlyWatch) {
+  const age = earlyAgeMinutes(watch);
+  const volume = watch.volumeH1 ?? 0;
+  const transactions = watch.transactionsH1 ?? 0;
+  const buys = watch.buysH1 ?? 0;
+  const sells = watch.sellsH1 ?? 0;
+  const priceChangeM5 = watch.priceChangeM5 ?? 0;
+  const priceChangeH1 = watch.priceChangeH1 ?? 0;
+  return age <= 5 && watch.firstLiquidityUsd >= 5_000 && volume >= 2_500 && transactions >= 40 && buys >= sells && priceChangeM5 <= 35 && priceChangeH1 <= 120;
+}
+
 function formatEarlyWatch(watch: EarlyWatch): TelegramPayload {
-  const age = watch.pairCreatedAt ? `${Math.max(0, Math.round((Date.now() - watch.pairCreatedAt) / 60_000))} دقيقة` : "غير متاح";
-  return { text: ["رصد داخلي فقط", `العملة: ${watch.name} (${watch.symbol})`, `السيولة الأولية: ${formatMoney(watch.firstLiquidityUsd)} | العمر: ${age}`, "لم يكتمل الفحص؛ لا يتم إرسال هذا النوع إلى Telegram."].join("\n") };
+  const age = `${earlyAgeMinutes(watch)} دقيقة`;
+  const buyRatio = (watch.buysH1 ?? 0) + (watch.sellsH1 ?? 0) > 0 ? Math.round(((watch.buysH1 ?? 0) / ((watch.buysH1 ?? 0) + (watch.sellsH1 ?? 0))) * 100) : 0;
+  const lines = [
+    "🔎 رصد مبكر | مراقبة فقط",
+    "━━━━━━━━━━━━━━━━",
+    `🔹 ${watch.name} (${watch.symbol})`,
+    `⏱️ العمر: ${age}  |  💧 السيولة: ${formatMoney(watch.firstLiquidityUsd)}`,
+    `📈 حجم 1س: ${formatMoney(watch.volumeH1)}  |  المعاملات: ${(watch.transactionsH1 ?? 0).toLocaleString("en-US")}`,
+    `🟢 نسبة الشراء التقريبية: ${buyRatio}%`,
+    "",
+    "✅ اجتاز بوابة الرصد المبكر: سيولة وحركة أولية دون قفزة سعرية مفرطة.",
+    "⚠️ لم يكتمل التأكيد؛ قد تكون البيانات قليلة وقد يخسر التوكن السيولة سريعاً.",
+    "",
+    `🔗 ${watch.sourceUrl}`,
+    `📄 العقد: ${watch.baseAddress}`,
+    "",
+    "تنبيه مراقبة آلي عالي المخاطر، ليس توصية شراء أو ضماناً للربح."
+  ];
+  return { text: lines.join("\n"), imageUrl: watch.imageUrl ?? null };
 }
 
 async function telegramRequest(token: string, method: "sendMessage" | "sendPhoto", body: Record<string, unknown>) {
@@ -99,6 +132,8 @@ export async function sendTelegramAlert(candidate: ScoredCandidate, alertType: T
 }
 
 export async function sendTelegramEarlyWatch(watch: EarlyWatch): Promise<TelegramDelivery> {
-  void formatEarlyWatch(watch);
-  return { status: "skipped", detail: "الرصد المبكر داخلي فقط ولا يُرسل إلى Telegram" };
+  if (!isEarlyTelegramCandidate(watch)) return { status: "skipped", detail: "تم استبعاد الرصد المبكر: العمر أو السيولة أو النشاط أو تغير السعر خارج البوابة" };
+  const delivery = await deliverTelegram(formatEarlyWatch(watch));
+  console.info(`[Telegram] early gem ${delivery.status}: ${delivery.detail}`);
+  return delivery;
 }
