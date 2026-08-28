@@ -12,6 +12,9 @@ const channelEnum = pgEnum("channel", ["in_app", "telegram"]);
 const alertTypeEnum = pgEnum("alert_type", ["threshold", "liquidity_pull", "decision_flip", "early_watch", "confirmed_alert"]);
 const deliveryStatusEnum = pgEnum("delivery_status", ["queued", "sent", "skipped", "failed"]);
 const securityStatusEnum = pgEnum("security_status", ["passed", "flagged", "unavailable"]);
+const signalEffectEnum = pgEnum("signal_effect", ["hard_gate", "score_deduction", "informational"]);
+const signalAvailabilityEnum = pgEnum("signal_availability", ["available", "unavailable"]);
+const signalEvidenceStateEnum = pgEnum("signal_evidence_state", ["safe", "unsafe", "unknown", "unavailable"]);
 
 export const users = pgTable("users", {
   id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
@@ -80,6 +83,28 @@ export const scannerSnapshots = pgTable("scannerSnapshots", {
   index("scanner_snapshots_symbol_idx").on(table.symbol),
   index("scanner_snapshots_scan_run_idx").on(table.scanRunId),
   index("scanner_snapshots_fetched_at_idx").on(table.fetchedAt),
+]);
+
+export const signalObservations = pgTable("signalObservations", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
+  scanRunId: integer("scanRunId"),
+  baseAddress: varchar("baseAddress", { length: 80 }).notNull(),
+  pairAddress: varchar("pairAddress", { length: 80 }),
+  stage: stageEnum("stage"),
+  signalKey: varchar("signalKey", { length: 96 }).notNull(),
+  reasonCode: varchar("reasonCode", { length: 120 }).notNull(),
+  effect: signalEffectEnum("effect").notNull(),
+  availability: signalAvailabilityEnum("availability").notNull(),
+  evidenceState: signalEvidenceStateEnum("evidenceState").notNull(),
+  value: real("value"),
+  valueJson: text("valueJson"),
+  source: varchar("source", { length: 96 }).notNull(),
+  observedAt: timestamp("observedAt").notNull(),
+  requestCost: integer("requestCost").notNull().default(0),
+}, (table) => [
+  index("signal_observations_token_time_idx").on(table.baseAddress, table.observedAt),
+  index("signal_observations_key_time_idx").on(table.signalKey, table.observedAt),
+  index("signal_observations_scan_run_idx").on(table.scanRunId),
 ]);
 
 export const securityReports = pgTable("securityReports", {
