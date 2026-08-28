@@ -22,14 +22,14 @@ export type DexScreenerPair = {
   chainId?: string; dexId?: string; url?: string; pairAddress?: string;
   baseToken?: { address?: string; name?: string; symbol?: string };
   quoteToken?: { address?: string; name?: string; symbol?: string };
-  priceUsd?: string; txns?: Record<string, TimeframeTransactions>; volume?: Record<string, number>;
+  priceUsd?: string; marketCap?: number | null; fdv?: number | null; txns?: Record<string, TimeframeTransactions>; volume?: Record<string, number>;
   priceChange?: Record<string, number>; liquidity?: { usd?: number | null }; pairCreatedAt?: number;
   info?: { imageUrl?: string | null; websites?: { url?: string }[] | null; socials?: { platform?: string; handle?: string }[] | null };
   labels?: string[] | null;
 };
 
 export type TokenCandidate = {
-  pairAddress: string; baseAddress: string; symbol: string; name: string; dexId: string; sourceUrl: string; imageUrl?: string | null; priceUsd: number | null;
+  pairAddress: string; baseAddress: string; symbol: string; name: string; dexId: string; sourceUrl: string; imageUrl?: string | null; priceUsd: number | null; marketCapUsd?: number | null;
   liquidityUsd: number; volumeH1: number; volumeH24: number; transactionsH1: number; buysH1: number; sellsH1: number;
   priceChangeM5: number; priceChangeH1: number; priceChangeH6: number; priceChangeH24: number; pairCreatedAt: number | null;
   discoverySources: string[]; liquidDexCount: number; metadataCompleteness: number;
@@ -60,7 +60,7 @@ export type ScoredCandidate = TokenCandidate & {
   factors: string[]; warnings: string[]; security: SecurityReport; decision: "monitor" | "caution" | "avoid"; signalTier: "confirmed" | "strong" | "watch" | "avoid";
   estimatedSlippage200: number | null; estimatedSlippage500: number | null; momentumConsistency: "positive" | "mixed" | "negative" | "unknown";
   jupiterPriceUsd: number | null; priceDivergencePct: number | null; liquidityDeltaPct: number | null; liquidityPullDetected: boolean; liquidityGrowthStable: boolean;
-  confidence: ConfidenceBreakdown; manipulationScore: number;
+  confidence: ConfidenceBreakdown; manipulationScore: number; liquidityToMarketCapRatio: number | null; liquidityToMarketCapDeduction: number;
 };
 
 export type SourceTelemetry = {

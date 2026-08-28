@@ -95,7 +95,8 @@ function toCandidate(pair: DexScreenerPair, pairs: DexScreenerPair[], profile: P
   return {
     pairAddress, baseAddress, symbol: pair.baseToken?.symbol || "?", name: pair.baseToken?.name || pair.baseToken?.symbol || "توكن غير مسمى",
     dexId: pair.dexId || "غير معروف", sourceUrl: pair.url || profile.url || `https://dexscreener.com/solana/${pairAddress}`, imageUrl: safeImageUrl(pair, profile),
-    priceUsd: Number.isFinite(price) ? price : null, liquidityUsd: Number(pair.liquidity?.usd ?? 0), volumeH1: Number(pair.volume?.h1 ?? 0), volumeH24: Number(pair.volume?.h24 ?? 0),
+    priceUsd: Number.isFinite(price) ? price : null, marketCapUsd: Number.isFinite(Number(pair.marketCap ?? pair.fdv)) && Number(pair.marketCap ?? pair.fdv) > 0 ? Number(pair.marketCap ?? pair.fdv) : null,
+    liquidityUsd: Number(pair.liquidity?.usd ?? 0), volumeH1: Number(pair.volume?.h1 ?? 0), volumeH24: Number(pair.volume?.h24 ?? 0),
     transactionsH1: buysH1 + sellsH1, buysH1, sellsH1, priceChangeM5: Number(pair.priceChange?.m5 ?? 0), priceChangeH1: Number(pair.priceChange?.h1 ?? 0),
     priceChangeH6: Number(pair.priceChange?.h6 ?? 0), priceChangeH24: Number(pair.priceChange?.h24 ?? 0), pairCreatedAt: typeof pair.pairCreatedAt === "number" ? pair.pairCreatedAt : null,
     discoverySources: Array.from(profile.sources), liquidDexCount: Math.max(1, liquidDexCount), metadataCompleteness: metadataScore(pair, profile),

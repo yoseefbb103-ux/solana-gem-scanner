@@ -14,6 +14,12 @@ const clamp = (value: number, min = 0, max = 100) => Math.max(min, Math.min(max,
 const round = (value: number) => Math.round(value * 10) / 10;
 const median = (values: number[]) => { const sorted = [...values].sort((left, right) => left - right); const middle = Math.floor(sorted.length / 2); return sorted.length ? sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2 : 0; };
 
+export function calculateLiquidityToMarketCapSignal(liquidityUsd: number, marketCapUsd: number | null | undefined) {
+  const ratio = marketCapUsd !== null && marketCapUsd !== undefined && Number.isFinite(marketCapUsd) && marketCapUsd > 0 && Number.isFinite(liquidityUsd) && liquidityUsd >= 0 ? liquidityUsd / marketCapUsd : null;
+  const deduction = ratio === null ? 0 : round(clamp(((0.02 - ratio) / 0.02) * 6, 0, 6));
+  return { ratio: ratio === null ? null : Math.round(ratio * 10_000) / 10_000, deduction };
+}
+
 export function unavailableSecurity(candidate: TokenCandidate): SecurityReport {
   return { baseAddress: candidate.baseAddress, pairAddress: candidate.pairAddress, symbol: candidate.symbol, source: "RugCheck", status: "unavailable", mintAuthorityOpen: false, freezeAuthorityOpen: false, lpLockStatus: "unknown", holderTopPct: null, holderTop10Pct: null, creatorAddress: null, ruggedCreator: false, knownRuggedDeployer: false, sprayCount24h: 0, rugcheckScore: null, symbolConflict: false, deepScanApplied: false, holderClusterScore: null, bundleDetected: null, washTradingScore: null, fundingSourceOverlap: null, fundingEvidenceStatus: "unavailable", token2022Flags: [], lpBurnVerified: null, lpMintAddresses: [], flags: ["بيانات أمان غير متاحة"], checkedAt: Date.now() };
 }
@@ -32,6 +38,10 @@ export function scoreCandidate(candidate: TokenCandidate, previousScore?: number
   if (multiSourceDiscovery) factors.push("ظهر عبر أكثر من قناة اكتشاف عامة");
   if (boostOnlyDiscovery) warnings.push("الظهور عبر التعزيزات فقط ليس دليلاً مستقلاً على جودة التوكن");
   const liquidityScore = clamp((candidate.liquidityUsd / 150_000) * 22, 0, 22);
+  const liquidityToMarketCap = calculateLiquidityToMarketCapSignal(candidate.liquidityUsd, candidate.marketCapUsd);
+  if (liquidityToMarketCap.ratio === null) warnings.push("نسبة السيولة إلى القيمة السوقية غير متاحة؛ لا تُفترض سلامة الإشارة");
+  else if (liquidityToMarketCap.ratio < 0.01) warnings.push("نسبة السيولة إلى القيمة السوقية منخفضة؛ قابلية الخروج تحتاج مراجعة");
+  else factors.push("نسبة السيولة إلى القيمة السوقية متاحة");
   if (candidate.liquidityUsd >= 50_000) factors.push("سيولة قابلة للتداول نسبياً");
   if (candidate.liquidityUsd < 15_000) warnings.push("سيولة منخفضة جداً");
   const volumeRatio = candidate.liquidityUsd > 0 ? candidate.volumeH1 / candidate.liquidityUsd : 0;
@@ -86,7 +96,7 @@ export function scoreCandidate(candidate: TokenCandidate, previousScore?: number
   risk += security.bundleDetected ? 18 : 0;
   risk += security.fundingSourceOverlap ? 22 : 0;
   risk += security.token2022Flags.some((flag) => /Transfer Hook|رسوم تحويل|إيقاف|مندوب دائم/.test(flag)) ? 12 : 0;
-  const opportunityScore = round(clamp(discoveryScore + liquidityScore + volumeScore + ageScore + activityScore + momentumScore + consistencyScore + (candidate.liquidDexCount >= 2 ? 2 : 0) + (candidate.metadataCompleteness >= 2 ? 1 : 0) + (signals.liquidityGrowthStable ? 3 : 0)));
+  const opportunityScore = round(clamp(discoveryScore + liquidityScore + volumeScore + ageScore + activityScore + momentumScore + consistencyScore + (candidate.liquidDexCount >= 2 ? 2 : 0) + (candidate.metadataCompleteness >= 2 ? 1 : 0) + (signals.liquidityGrowthStable ? 3 : 0) - liquidityToMarketCap.deduction));
   const riskScore = round(clamp(risk));
   const decision: ScoredCandidate["decision"] = signals.liquidityPullDetected || security.mintAuthorityOpen || security.freezeAuthorityOpen || security.lpLockStatus === "unlocked" || security.knownRuggedDeployer || riskScore >= 65 ? "avoid" : security.status === "passed" && riskScore <= 28 && opportunityScore >= 55 ? "monitor" : "caution";
   const hasReliablePriceCheck = signals.jupiterChecked === true && jupiterPriceUsd !== null && priceDivergencePct !== null && priceDivergencePct <= 12;
@@ -117,7 +127,7 @@ export function scoreCandidate(candidate: TokenCandidate, previousScore?: number
     Math.min(25, totalTransactions / 4) + Math.min(15, Math.max(0, candidate.volumeH1 / 5_000)) +
     Number(signals.liquidityGrowthStable) * 10 + Number(signals.activityTrend === "rising") * 8 - Number(signals.activityTrend === "falling") * 10,
   ));
-  return { ...candidate, ageHours: ageHours === null ? null : round(ageHours), opportunityScore, riskScore, scoreDelta: round(opportunityScore - (previousScore ?? opportunityScore)), factors: Array.from(new Set(factors)), warnings: Array.from(new Set(warnings)), security, decision, signalTier, estimatedSlippage200: slippage200, estimatedSlippage500: slippage500, momentumConsistency: consistency, jupiterPriceUsd, priceDivergencePct, liquidityDeltaPct: signals.liquidityDeltaPct ?? null, liquidityPullDetected: Boolean(signals.liquidityPullDetected), liquidityGrowthStable: Boolean(signals.liquidityGrowthStable), confidence: { data: dataConfidence, safety: safetyConfidence, momentum: momentumConfidence, manipulation: Math.round(100 - manipulationScore) }, manipulationScore };
+  return { ...candidate, ageHours: ageHours === null ? null : round(ageHours), opportunityScore, riskScore, scoreDelta: round(opportunityScore - (previousScore ?? opportunityScore)), factors: Array.from(new Set(factors)), warnings: Array.from(new Set(warnings)), security, decision, signalTier, estimatedSlippage200: slippage200, estimatedSlippage500: slippage500, momentumConsistency: consistency, jupiterPriceUsd, priceDivergencePct, liquidityDeltaPct: signals.liquidityDeltaPct ?? null, liquidityPullDetected: Boolean(signals.liquidityPullDetected), liquidityGrowthStable: Boolean(signals.liquidityGrowthStable), confidence: { data: dataConfidence, safety: safetyConfidence, momentum: momentumConfidence, manipulation: Math.round(100 - manipulationScore) }, manipulationScore, liquidityToMarketCapRatio: liquidityToMarketCap.ratio, liquidityToMarketCapDeduction: liquidityToMarketCap.deduction };
 }
 
 export function scoreCandidates(candidates: TokenCandidate[], previousScores: Map<string, number>, securityByAddress: Map<string, SecurityReport>, signalsByAddress = new Map<string, CandidateSignals>()) {
