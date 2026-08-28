@@ -1,7 +1,9 @@
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
-import { alertEvents, earlyTokenWatches, filterSettings, knownRuggedDeployers, performanceCheckpoints, scannerRunLocks, scannerSettings, scannerSnapshots, scanRuns, securityReports, sourceHealthEvents, watchlist } from "../drizzle/schema";
+import { alertEvents, earlyTokenWatches, filterSettings, knownRuggedDeployers, performanceCheckpoints, scannerRunLocks, scannerSettings, scannerSnapshots, scanRuns, securityReports, signalObservations, sourceHealthEvents, watchlist } from "../drizzle/schema";
 import { getDb } from "./db";
 import { DEFAULT_FILTERS, DEFAULT_SCANNER_SETTINGS, type EarlyWatch, type FundingEvidenceStatus, type ScanFilters, type ScannerSettings, type ScoredCandidate, type SecurityReport, type SourceTelemetry, type TokenCandidate } from "./scanner/types";
+import { createSignalObservation, SIGNAL_REASON_CODES } from "./scanner/signalObservations";
+import { summarizeDiscoveryRate } from "./scanner/discoveryRate";
 
 type StoreScanInput = {
   source: string;
@@ -217,6 +219,13 @@ export async function storeScan(input: StoreScanInput) {
     fundingSourceOverlap: candidate.security.fundingSourceOverlap, fundingEvidenceStatus: candidate.security.fundingEvidenceStatus, token2022Flags: JSON.stringify(candidate.security.token2022Flags), lpBurnVerified: candidate.security.lpBurnVerified,
     factorsJson: JSON.stringify(candidate.factors), warningsJson: JSON.stringify(candidate.warnings), fetchedAt: input.fetchedAt,
   })));
+  await db.insert(signalObservations).values(input.candidates.map((candidate) => createSignalObservation({
+    scanRunId: scanId, baseAddress: candidate.baseAddress, pairAddress: candidate.pairAddress, stage: candidate.ageHours !== null && candidate.ageHours <= 5 / 60 ? "early" : "confirmed",
+    signalKey: "liquidity_to_market_cap", reasonCode: candidate.liquidityToMarketCapRatio === null ? SIGNAL_REASON_CODES.LIQUIDITY_TO_MARKET_CAP_UNAVAILABLE : SIGNAL_REASON_CODES.LIQUIDITY_TO_MARKET_CAP_AVAILABLE,
+    effect: candidate.liquidityToMarketCapRatio === null ? "informational" : "score_deduction", availability: candidate.liquidityToMarketCapRatio === null ? "unavailable" : "available",
+    evidenceState: candidate.liquidityToMarketCapRatio === null ? "unavailable" : "unknown", value: candidate.liquidityToMarketCapRatio,
+    valueJson: JSON.stringify({ liquidityUsd: candidate.liquidityUsd, marketCapUsd: candidate.marketCapUsd, deduction: candidate.liquidityToMarketCapDeduction }), source: "DEX Screener", observedAt: input.fetchedAt, requestCost: 1,
+  })));
   await db.insert(securityReports).values(input.candidates.map((candidate) => ({
     scanRunId: scanId, baseAddress: candidate.baseAddress, pairAddress: candidate.pairAddress, symbol: candidate.symbol,
     source: candidate.security.source, status: candidate.security.status, mintAuthorityOpen: candidate.security.mintAuthorityOpen,
@@ -240,6 +249,7 @@ export async function getLatestDashboard() {
   const recentSecurity = addresses.length ? await db.select().from(securityReports).where(inArray(securityReports.baseAddress, addresses)).orderBy(desc(securityReports.checkedAt)).limit(300) : [];
   const securityByAddress = new Map<string, SecurityReport>();
   for (const row of recentSecurity) if (!securityByAddress.has(row.baseAddress)) securityByAddress.set(row.baseAddress, mapSecurity(row));
+  const [observations, discoveryRate] = await Promise.all([getSignalObservationsForRun(run.id), getDiscoveryRateReport()]);
   return {
     scanId: run.id, source: run.source, fetchedAt: run.fetchedAt, totalCandidates: run.candidateCount, visibleCount: run.visibleCount,
     executionOrigin: run.executionOrigin, filters: parseFilters(run.filterJson), persistenceAvailable: true,
@@ -253,6 +263,8 @@ export async function getLatestDashboard() {
       liquidDexCount: row.liquidDexCount, metadataCompleteness: row.metadataCompleteness, jupiterPriceUsd: num(row.jupiterPriceUsd), priceDivergencePct: num(row.priceDivergencePct), discoverySources: [], factors: parseJsonArray(row.factorsJson), warnings: parseJsonArray(row.warningsJson),
       security: securityByAddress.get(row.baseAddress) ?? null,
     })),
+    signalObservations: observations.map((observation) => ({ ...observation, observedAt: observation.observedAt.getTime() })),
+    discoveryRate,
   };
 }
 
@@ -341,6 +353,21 @@ export async function promoteEarlyDiscoveries(candidates: ScoredCandidate[], sca
     if (claimed) promoted.push(candidate);
   }
   return promoted;
+}
+
+export async function getDiscoveryRateReport() {
+  const db = await getDb();
+  const now = new Date();
+  const windowStart = new Date(now.getTime() - 7 * 24 * 60 * 60_000);
+  if (!db) return { windowStart: windowStart.getTime(), windowEnd: now.getTime(), sampleHours: 0, uniqueTokens: 0, tokensPerHour: 0, status: "unavailable" as const };
+  const rows = await db.select({ baseAddress: earlyTokenWatches.baseAddress, firstSeenAt: earlyTokenWatches.firstSeenAt }).from(earlyTokenWatches).where(gte(earlyTokenWatches.firstSeenAt, windowStart));
+  return summarizeDiscoveryRate(rows, now.getTime());
+}
+
+export async function getSignalObservationsForRun(scanRunId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(signalObservations).where(eq(signalObservations.scanRunId, scanRunId)).orderBy(desc(signalObservations.observedAt));
 }
 
 export async function listEarlyWatches() {
