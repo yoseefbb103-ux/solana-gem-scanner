@@ -3,7 +3,10 @@ import { Client } from "pg";
 
 const maxAttempts = Number(process.env.DB_PUSH_MAX_ATTEMPTS ?? 12);
 const retryDelayMs = Number(process.env.DB_PUSH_RETRY_DELAY_MS ?? 5000);
-const baselineUrl = new URL("../drizzle/0000_fuzzy_robbie_robertson.sql", import.meta.url);
+const migrationUrls = [
+  new URL("../drizzle/0000_fuzzy_robbie_robertson.sql", import.meta.url),
+  new URL("../drizzle/0001_young_warstar.sql", import.meta.url),
+];
 
 if (!process.env.DATABASE_URL) {
   console.error("[DB Bootstrap] DATABASE_URL is required before starting the service.");
@@ -43,12 +46,15 @@ function makeIdempotent(statement) {
   return sql;
 }
 
-async function applyBaseline() {
-  const baseline = await readFile(baselineUrl, "utf8");
-  const statements = baseline
-    .split(/--\>\s*statement-breakpoint/g)
-    .map(makeIdempotent)
-    .filter(Boolean);
+async function applyMigrations() {
+  const statements = [];
+  for (const migrationUrl of migrationUrls) {
+    const migration = await readFile(migrationUrl, "utf8");
+    statements.push(...migration
+      .split(/-->\s*statement-breakpoint/g)
+      .map(makeIdempotent)
+      .filter(Boolean));
+  }
   const client = new Client(connectionOptions());
   await client.connect();
   try {
@@ -68,8 +74,8 @@ async function applyBaseline() {
 
 for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
   try {
-    console.log(`[DB Bootstrap] Applying deterministic PostgreSQL baseline (attempt ${attempt}/${maxAttempts})...`);
-    await applyBaseline();
+    console.log(`[DB Bootstrap] Applying deterministic PostgreSQL migrations (attempt ${attempt}/${maxAttempts})...`);
+    await applyMigrations();
     console.log("[DB Bootstrap] PostgreSQL schema is ready.");
     process.exit(0);
   } catch (error) {
